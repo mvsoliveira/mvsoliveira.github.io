@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checking PCB schematics with a script: PCBpy</title>
+<meta name="description" content="PCBpy reads the netlist of a board and generates VHDL wrappers, pin and polarity constraints and verification reports for its FPGAs.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>Checking PCB schematics with a script: PCBpy</h1>
+  <p class="meta"><span class="postmeta"><time>2018</time><span class="tag" data-t="t_hw">Hardware</span></span>Written from chapters 2 and 3 of my PhD thesis (EPFL, 2021).</p>
+  <p class="doclinks"><a href="../docs/phd-thesis.pdf">PhD thesis (PDF)</a><a href="https://github.com/mvsoliveira/PCBpy">PCBpy on GitHub</a><a href="../theses/phd.html">Thesis summary</a></p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">Before an FPGA can use a high-speed link, the firmware has to know three things about it: which transceiver it is connected to, what is at the other end, and whether the two wires of the differential pair are swapped. Usually an engineer reads this off the schematics. On the upgraded muon interface of ATLAS (MUCTPI) there were 334 such links, and I wrote a program to read the board's netlist and produce the answer. It is called PCBpy.</p>
+
+<h2>The board</h2>
+<p>The MUCTPI replaces a crate of 18 VME modules with one ATCA blade. It carries two large Muon Sector Processor FPGAs, a Trigger and Readout Processor FPGA and a system-on-chip for control.</p>
+<p>Each sector processor receives 104 optical inputs from the muon sector logic through nine 12-channel receiver modules (Broadcom MiniPOD). It sends muon information to the topological trigger processor over up to 24 links through two transmitter modules. Another 28 transceiver links go from each sector processor to the readout processor on the board itself. The readout processor has one more MiniPOD towards the Central Trigger Processor, an SFP module for the timing signals and a QSFP+ module for the data acquisition.</p>
+<p>That is the multi-gigabit part. Next to it there are ordinary differential pairs: 47 between the two sector processors and 70 from each of them to the readout processor.</p>
+
+<p>Three versions of the board were built. The first used Xilinx UltraScale VU160 FPGAs as sector processors and a Zynq-7000 system-on-chip for control. The second moved the sector processors to UltraScale+ VU9P devices. The third kept those and replaced the controller with a Zynq UltraScale+ MPSoC. The readout processor, a Kintex UltraScale KU095, was the same in all three. Each change of FPGA meant a new package, new pin files and a new set of constraints, which is one more reason the connectivity had to come out of a program and not out of someone's notes.</p>
+
+<figure><img src="../img/blog-pcbpy-prototype.jpg" alt="Annotated photo of the MUCTPI prototype board with its MiniPODs, FPGAs, power converters and connectors outlined, a block diagram of its links, and a table of the FPGAs used in versions 1 to 3" width="1600" height="805" loading="lazy"><figcaption>The first MUCTPI prototype and its connectivity: 104 sector logic inputs on each side, 28 multi-gigabit and 70 LVDS links from each sector processor to the readout processor, 47 LVDS links between the sector processors (PhD technical defence slides).</figcaption></figure>
+
+<h2>Why the schematics are hard to read</h2>
+<p>To keep the layout of the printed circuit board manageable, two liberties were allowed. Channels may be swapped: the order of the channels at an optical module need not match the order of the transceivers at the FPGA. And polarities may be inverted: the positive line of a pair at one end may arrive on the negative pin at the other.</p>
+<p>Both are harmless as long as the firmware knows about them. The transceiver can invert the polarity of its data for exactly this case, and channel order is a matter of connecting each signal to the right transceiver. But somebody has to supply that information for every link, and it has to be correct.</p>
+<p>My thesis describes the manual alternative in one sentence, which I still agree with: reading the schematics thoroughly to extract the connectivity, the pin assignments and the polarities of this many links is very difficult, time-consuming and susceptible to human error.</p>
+
+<h2>What PCBpy does</h2>
+<p>PCBpy is a parser for designs made in Cadence Allegro. It takes two kinds of input: the back-annotated netlist of the board, which lists every net and the component pins attached to it, and the package pin files of the FPGAs. From these it extracts the connectivity and generates three kinds of output.</p>
+<p>The first is VHDL wrappers. The second is constraints, for the placement of the signals on the FPGA pins and for the polarity of the links. The third is netlist verification reports.</p>
+
+<figure><img src="../img/blog-pcbpy-flow.png" alt="Flow diagram in seven numbered steps: netlist and FPGA package files go into Python scripts, which produce TCL control scripts for Xilinx Vivado; Vivado talks to the board over JTAG and returns eye-scan files, from which reports are produced" width="1400" height="366" loading="lazy"><figcaption>Where PCBpy sits in the test flow. Step 1 reads the netlist and the FPGA package files. The later steps belong to <a href="ibertpy.html">IBERTpy</a> (PhD thesis, Fig. 3.8).</figcaption></figure>
+
+<h2>What it was used for</h2>
+<p><strong>Finding mistakes before fabrication.</strong> Inversions were allowed, but an inversion nobody intended is a mistake. PCBpy detected accidental polarity inversions of differential lines in the MUCTPI schematics. They were found and corrected before the first board had been produced, at a stage when a correction is a change in a drawing.</p>
+<p><strong>Starting every firmware project from the same description.</strong> The generated wrappers and placement constraints were used for the other firmware developments in all the FPGAs of the MUCTPI, not only for link testing. Typing pin constraints by hand is slow work, and as the thesis notes, generating them speeds up the design flow particularly when the FPGAs are large.</p>
+<p><strong>Feeding the link tests.</strong> The connectivity and polarity tables are the input of <a href="ibertpy.html">IBERTpy</a>, which uses them to create every link in the vendor's test tool, set its polarity, run bit-error-rate tests and eye scans, and compile a report. Without the first tool the second would have needed a hand-written table of 334 rows, and the table would have been the weak point.</p>
+
+<h2>Why a script and not a careful person</h2>
+<p>I do not think a script is smarter than a careful engineer with the schematics open. The difference is in what happens the second and the tenth time. The script reads every net, every time, in the same way. It does not get tired on page 40. If the layout is revised, it can be run again and the constraints regenerated. And its output is a file that another program can consume, which is what made the automated link tests possible.</p>
+<p>There is also a benefit that is easy to miss. Because the netlist is the single source, the firmware and the board cannot drift apart without someone noticing. If a wrapper does not match what the designer expected, either the expectation or the schematic is wrong, and it is better to find out which before anything is manufactured.</p>
+
+<h2>Where to find it</h2>
+<p>PCBpy is open source, published in July 2018 and available on GitHub and PyPI together with IBERTpy and SNpy, the other two packages that came out of my PhD. The repository is the reference for the supported file formats and for how to run it. The description I gave it at the time still fits: a Cadence Allegro PCB schematics parser and verification tool that integrates the PCB into the FPGA design flow.</p>
+<p>The results of the link tests that this tool made possible are in the <a href="../docs/muctpi-serial-link-test-report.pdf">serial link test report (PDF)</a>, and the context is in chapter 3 of the <a href="../docs/phd-thesis.pdf">thesis (PDF)</a>.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="transceiver-latency.html"><small>Previous post</small>Making transceiver latency deterministic</a><a class="next" href="ibertpy.html"><small>Next post</small>Testing 300 transceivers without touching them: IBERTpy</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>

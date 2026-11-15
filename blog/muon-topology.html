@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teaching a trigger where the muons are</title>
+<meta name="description" content="How the ATLAS muon trigger interface was upgraded for LHC Run 2 to send the position of each muon over outputs built for 40 MHz, overclocked to 320 Mb/s.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>Teaching a trigger where the muons are</h1>
+  <p class="meta"><span class="postmeta"><time>2012–15</time><span class="tag" data-t="t_fw">Firmware</span></span>Written from my master's thesis (UFJF, 2015).</p>
+  <p class="doclinks"><a href="../docs/master-thesis.pdf">Master's thesis (PDF)</a><a href="../docs/master-jinst-paper.pdf">JINST paper (PDF)</a><a href="../docs/master-defense.pdf">Defence slides (PDF)</a><a href="../theses/master.html">Thesis summary</a></p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">During the first run of the LHC, the first-level trigger of ATLAS knew how many muon candidates a bunch crossing had produced and which momentum thresholds they had passed. It did not know where they were. For Run 2 a new processor, L1Topo, was going to select events on geometry: angles and effective masses computed between trigger objects. It needed a position for every muon, 40 million times per second. My master's work was to get that information out of a system that had no output for it.</p>
+
+<h2>The system as it was</h2>
+<p>The first-level trigger is built from custom electronics. It reduces the rate of bunch crossings from 40 MHz to about 100 kHz before anything is read out, and it has a few microseconds to do so. The muon part of it starts at two kinds of detector: Resistive Plate Chambers in the barrel and Thin Gap Chambers in the endcaps. Their sector logic estimates the transverse momentum of each candidate from how much its track is bent by the toroid magnets. The higher the momentum, the smaller the bending.</p>
+<figure><img src="../img/blog-muon-l1-system.jpg" alt="Block diagram of the ATLAS first-level trigger: calorimeter, RPC and TGC detectors feeding the MUCTPI, with the new MuCTPiToTopo and L1Topo blocks highlighted, all feeding the Central Trigger Processor" width="1500" height="1051" loading="lazy"><figcaption>The first-level trigger for Run 2. The red frame marks the path this work added: from the MUCTPI through MuCTPiToTopo to L1Topo (master's defence slides).</figcaption></figure>
+
+<p>The Muon-to-Central-Trigger-Processor Interface (MUCTPI) sits between the muon trigger detectors and the Central Trigger Processor. The detectors are divided into 208 trigger sectors, and each sector sends its two highest-momentum candidates per bunch crossing. Sixteen octant modules (MIOCT) in a 9U VME crate each take 13 sectors, remove the candidates that two overlapping sectors report twice, and count what is left for each of six momentum thresholds. The backplane adds up the counts and the result goes to the Central Trigger Processor. The position of each candidate was only read out after the event had been accepted.</p>
+
+<p>The 208 sectors are organised geometrically. The system has two halves, each half has eight octants, and each octant has thirteen sectors: four from the barrel, six from the endcap and three from the forward region. That is why each MIOCT takes 13 inputs. Two more modules complete the crate of 18: the MICTP, which receives the timing signals and forwards the total multiplicity to the Central Trigger Processor, and the MIROD, which collects the readout data over the backplane and sends it to the high-level trigger and data acquisition.</p>
+
+<figure><img src="../img/blog-muon-crate.jpg" alt="Photo of the MUCTPI VME crate with sixteen octant modules, sector data cables coming in from both sides and the trigger outputs marked on the front panels" width="1500" height="1051" loading="lazy"><figcaption>The MUCTPI crate in Run 1 and Run 2: sixteen MIOCT modules, the MICTP and the MIROD. The cables on both sides carry the sector data; the small front-panel connectors marked "trigger outputs" are the ones this work reused (master's defence slides).</figcaption></figure>
+<p>Each MIOCT has two electrical outputs on its front panel. They were foreseen for testing, and in Run 1 they flagged the presence of at least one candidate in a selectable region. They were specified for 40 MHz, one bit per bunch crossing, which is not enough even for a coarse position. There were 32 of them in the crate, and they were the only way out.</p>
+<p>The proposal was to overclock them by a factor of eight, to 320 Mb/s, giving eight bits per bunch crossing on each output, with no change to the hardware. Nobody had run those outputs above 40 MHz, so the first question was whether they could do it.</p>
+
+<h2>Finding out whether it would work</h2>
+<p>I modified the MIOCT firmware to send a pseudo-random bit sequence (PRBS-31) at 80, 160, 240 and 320 Mb/s. A pseudo-random sequence matters here because it contains both short and long intervals between edges, like real data, so it exposes data-dependent jitter that a fixed pattern would hide. An oscilloscope eye diagram accumulated over 30 days was open at 320 Mb/s.</p>
+
+<figure><img src="../img/blog-muon-eye-scope.jpg" alt="An oscilloscope next to an eye diagram of a 320 Mb/s signal with a clear opening of about 500 ps by 150 mV" width="1500" height="1051" loading="lazy"><figcaption>The first question and the first answer: an open eye at 320 Mb/s on the MIOCT trigger outputs, measured with an oscilloscope (master's defence slides).</figcaption></figure>
+<p>That was encouraging and not sufficient. The oscilloscope checks the transmitter only: it has no setup and hold times like a real receiver, and it samples so sparsely that it cannot see errors that occur rarely. So I built an error-rate test system on a Xilinx KC705 evaluation kit. A mezzanine card built by Nikhef received the 32 outputs, and a second one the clock. The FPGA was controlled over Ethernet with IPbus, and a Python program ran the tests and published live results on a web page.</p>
+
+<p>The hardware was deliberately ordinary. The KC705 board carries a Kintex-7 FPGA with programmable delay lines on its inputs, a Gigabit Ethernet interface, a DDR3 memory module and two FMC slots for mezzanine cards. The MUCTPI receiver card adapted the 32 NIM-level trigger outputs to LVDS, and a second card converted the ECL clock of the experiment. In the firmware, one receiver chain was replicated 32 times: an input stage to adjust the sampling phase and detect transitions, a PRBS checker to count bit errors, and IPbus to control everything from the PC and read out the results.</p>
+
+<figure><img src="../img/blog-muon-test-hardware.jpg" alt="The KC705 FPGA evaluation board, the MUCTPI receiver mezzanine card and the ECL-to-LVDS converter card" width="1500" height="1051" loading="lazy"><figcaption>The error-rate test system: a commercial FPGA board and two mezzanine cards (master's defence slides).</figcaption></figure>
+
+<figure><img src="../img/blog-muon-test-firmware.jpg" alt="Firmware block diagram: MUCTPI receiver card into the Kintex-7 FPGA, where a DDR input, PRBS evaluation and IPbus chain is replicated 32 times, connected over Ethernet to a PC" width="1500" height="1051" loading="lazy"><figcaption>The test firmware: input stage, PRBS checker and IPbus control, replicated for each of the 32 outputs (master's defence slides).</figcaption></figure>
+<p>The receiver had one problem to solve. The programmable input delay of the FPGA has 32 taps of 78.125 ps, 2.5 ns in total, while a bit at 320 Mb/s lasts 3.125 ns. The delay line alone cannot scan a full bit. I sampled its output with four clock phases 90 degrees apart, using the input deserialiser in its oversampling mode, and ran the logic at 160 MHz. Each phase then needs only 20 taps, and four phases times 20 taps give 80 sampling positions over two consecutive bits, 40 per bit period.</p>
+<p>To see where the signal changes, a second copy of the input is delayed by one extra tap, about 80 ps, and compared with the first. If the two differ, there was a transition between those two instants. Scanning all positions gives a map of where the data is moving and where it is stable. In parallel, a PRBS checker counts bit errors at the chosen sampling point.</p>
+
+<figure><img src="../img/master-phase.png" alt="Grid of 32 rows, one per output, across 40 sampling positions of one bit period: a red band of transitions and a wide green stable region" width="1000" height="957" loading="lazy"><figcaption>Phase scan of the 32 outputs at 320 Mb/s. Red: transitions seen. Green: none. Each row is one output over one 3.125 ns bit period (master's thesis, Fig. 4.18).</figcaption></figure>
+
+<h2>What the scan showed</h2>
+<p>On all 32 outputs, 75% of the bit period was free of transitions. The unstable region was 625 ps wide, eight taps. Runs of 120 hours at the edges of that region showed no drift of the clock phase larger than 80 ps.</p>
+<p>At the centre of the stable region, about 1.38 × 10<sup>14</sup> bits per output were received without a single error, 4.42 × 10<sup>15</sup> bits over the 32 outputs. That puts the bit error rate below 10<sup>−15</sup> with a confidence level of 98.8%. The target had been set at no more than one error per day over all outputs together.</p>
+
+<h2>Eight bits per muon</h2>
+<p>With the channel proven, the MIOCT firmware got a new processing chain: veto, sorter, encoder, serialiser. The veto drops the candidates that the overlap logic has flagged. The sorter then has to find the two highest-momentum candidates among the 26 of an octant.</p>
+
+<figure><img src="../img/blog-muon-encoding-unit.jpg" alt="Block diagram of the topological encoding unit: muon candidates and veto flags enter the veto block, then the sorter, a look-up-table encoder and a serialiser with PRBS and alignment pattern options" width="1500" height="1051" loading="lazy"><figcaption>The topological encoding unit added to the MIOCT firmware. All of it runs at 160 MHz, four times the bunch-crossing rate (master's defence slides).</figcaption></figure>
+<p>A sequential search with one comparator at 160 MHz would take 26 clock cycles, 162.5 ns, more than the roughly 125 ns the whole MUCTPI takes. So all 325 pairwise comparisons are made at once. The candidate that wins every comparison in its row is the highest. A second copy of the comparison matrix, with the winner's results negated, gives the second. The comparison stage did not fit in one 6.25 ns clock cycle, so the path is declared as a two-cycle path, 12.5 ns, and each unit passes a valid flag to the next so that no unit needs to know the delay of the others.</p>
+
+<figure><img src="../img/blog-muon-sorter-timing.jpg" alt="Timing diagram of the sorter: comparison results, finding the highest and the second highest element within more than one 160 MHz clock cycle, followed by a simulation waveform of the encoding pipeline" width="1500" height="1051" loading="lazy"><figcaption>The sorter is declared as a two-cycle path: the comparisons take longer than one 6.25 ns clock cycle (master's defence slides).</figcaption></figure>
+<p>The encoder turns each of the two candidates into eight bits: three for pseudorapidity η, three for the azimuthal angle φ and two for momentum. One η code is reserved for "no candidate". The original six momentum thresholds are mapped onto three programmable ones, and the spare code of the second candidate says that the octant had more than two. The average bin is about 0.3 × 0.1 in η and φ. All the mappings are look-up tables that can be reloaded. Sixteen octants times 56 codes give 896 distinct positions, and the 32 outputs carry 10.24 Gb/s in total.</p>
+
+<p>Each MIOCT encodes 7 × 8 = 56 locations within its octant, and the octant number turns them into global η and φ coordinates. The map in the defence slides shows the result: sixteen octants side by side, each divided into the same grid of bins.</p>
+
+<figure><img src="../img/blog-muon-geometry.jpg" alt="A map in eta and phi of the 896 geometric bins, coloured by octant and numbered 1 to 16" width="1500" height="1051" loading="lazy"><figcaption>The 896 positions the MUCTPI can send to L1Topo: 16 octants of 56 bins each (master's defence slides).</figcaption></figure>
+
+<h2>Checking it</h2>
+<p>The new logic was compared with a behavioural model in VHDL simulation over 185 thousand bunch crossings. Then the real hardware was tested by loading random sector data into the test memory of the MIOCT and reading back the encoded result: 1.4 billion bunch crossings, checked against the software model. That test stops before the serialiser, so I extended the test system to receive the serial data from all 16 modules, align it and store it in DDR3 memory. Over three days it checked 10<sup>10</sup> bunch crossings without an error.</p>
+<p>Integration with the electrical-to-optical converter (MuCTPiToTopo) and with L1Topo followed. Known patterns were read back correctly over 2.6 million and 258 thousand bunch crossings. Those numbers are small because the read-out of the two systems was slow, and the thesis says plainly that they are not enough to claim a low error rate. Finally I carried the test system to the ATLAS counting room and repeated the phase scan on the installed MUCTPI. The unstable region was again 25% of the bit period.</p>
+
+<p>The only difference was where the unstable region sat within the bit period, because the timing of the installed system is not the same as in the lab. The width, which is what decides whether the link is reliable, was the same.</p>
+
+<figure><img src="../img/blog-muon-usa15.jpg" alt="Phase scan of the installed MUCTPI with a large green transition-free region, next to photos of the cables connected in the ATLAS counting room" width="1500" height="1051" loading="lazy"><figcaption>The phase scan repeated in USA15, the ATLAS counting room, with the trigger output cables connected to the test system (master's defence slides).</figcaption></figure>
+
+<h2>What stayed with me</h2>
+<p>The oscilloscope picture looked like proof and was not. The useful measurement was made at the receiver, with the receiver's own limitations, over enough bits to put a number and a confidence level on the result.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="plc-modem.html"><small>Previous post</small>Building the first Latin American power-line modem</a><a class="next" href="link-synchronisation.html"><small>Next post</small>Synchronising more than 100 serial links in one FPGA</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sorting networks in RTL and in HLS: SNpy</title>
+<meta name="description" content="A 352-input, 16-output sorting network in 32 steps for the ATLAS muon trigger, found with the SNpy package and implemented in both VHDL and high-level synthesis.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>Sorting networks in RTL and in HLS: SNpy</h1>
+  <p class="meta"><span class="postmeta"><time>2019</time><span class="tag" data-t="t_fw">Firmware</span></span>Written from chapters 6 to 8 of my PhD thesis (EPFL, 2021).</p>
+  <p class="doclinks"><a href="../docs/phd-thesis.pdf">PhD thesis (PDF)</a><a href="../docs/phd-public-defense.pdf">Public defence slides (PDF)</a><a href="https://github.com/mvsoliveira/SNpy">SNpy on GitHub</a><a href="../theses/phd.html">Thesis summary</a></p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">The upgraded muon interface of ATLAS (MUCTPI) has to pick the 16 muon candidates with the highest transverse momentum out of 352, in every bunch crossing, 40 million times per second, always with the same delay. The method used in the previous system could not be scaled to that size. This post describes how I arrived at a sorting network of 32 steps, the Python package that made the search possible, and what happened when I implemented the same network twice, once in VHDL and once in C++ for high-level synthesis.</p>
+
+<h2>Why the old method stops working</h2>
+<p>The Run 2 firmware chose 2 candidates out of 26 by making every pairwise comparison at once: 325 comparators, then logic that finds the candidate that wins all its comparisons. For 352 inputs the same scheme needs 61,776 comparators. Worse, the outputs cannot be found in parallel, because finding the second highest requires knowing the first, and so on sixteen times.</p>
+<p>I tried it anyway, to have numbers. Above 104 inputs synthesis had not finished after a week. Above 88 the design could not be routed. At 88 inputs the combinational delay was already 120 ns, 60% of the latency budget of the whole board.</p>
+
+<figure><img src="../img/blog-sorting-motivation.jpg" alt="Block diagram of the muon sector data processing in the MUCTPI, with sorting and multiplicity blocks, next to a plot of resources and delay growing steeply with the number of inputs for the Run 2 algorithm" width="1600" height="805" loading="lazy"><figcaption>Where sorting sits in the MUCTPI, and why the Run 2 method cannot be stretched from 26-to-2 to 352-to-16 (PhD technical defence slides).</figcaption></figure>
+
+<h2>Sorting networks</h2>
+<p>A sorting network is built from one element, the compare-exchange: two values go in, the larger comes out on one line and the smaller on the other. The network is a fixed list of such operations on fixed pairs of lines. Operations that do not share a line can run at the same time and form one step. In hardware the delay is set by the number of steps, not by the number of comparisons.</p>
+<p>Two properties make this a good fit for a trigger. The sequence of operations does not depend on the data, so the latency is the same for every input. And a network can be checked with the zero-one principle: if it sorts every sequence of zeros and ones, it sorts every sequence of numbers.</p>
+
+<figure><img src="../img/blog-sorting-networks.jpg" alt="Knuth diagrams: a small sorting network with three stages and a compare-exchange block, next to larger sorting and merging networks shaded in blue and pink" width="1600" height="805" loading="lazy"><figcaption>Sorting networks are drawn as Knuth diagrams: horizontal lines are the values, vertical connectors are compare-exchange operations. A sorting network sorts any sequence; a merging network merges two sorted ones (PhD technical defence slides).</figcaption></figure>
+<p>Batcher's constructions from the 1960s give a network for any number of inputs and are still the fastest practical general method.</p>
+
+<h2>SNpy</h2>
+<p>To work with networks of this size I wrote SNpy, a Python package that generates sorting and merging networks, optimises them, combines them, draws them as Knuth diagrams, and writes them out as VHDL and as C.</p>
+<p>The optimisations remove compare-exchange elements that are not needed in a particular application: those connected only to unused inputs or outputs, those made redundant because part of the input is already sorted, and those that only put in order outputs that need not be in order. SNpy also extracts the number of steps and of comparators from a generated network, which allows candidates to be compared before any of them is implemented.</p>
+<p>A first study with it compared Batcher's three constructions for every size from 2 to 512 inputs. Merge-exchange always gives the lowest delay and never needs more comparators than the other two.</p>
+
+<figure><img src="../img/blog-sorting-batcher.jpg" alt="Plots of delay and number of comparisons against number of inputs for Batcher odd-even merge, bitonic merge and merge-exchange networks, with input and output optimisations" width="1600" height="805" loading="lazy"><figcaption>The study of Batcher's constructions with SNpy. Within these methods, merge-exchange has the minimum delay without needing more comparators (PhD technical defence slides).</figcaption></figure>
+
+<h2>Divide and conquer</h2>
+<p>A 352-input Batcher network has 45 steps and, after removing what is not needed for 16 outputs, 4,446 comparators. Most of that work is wasted. Before its final merge, such a network has fully sorted two halves of 176, of which only the top 16 of each can matter.</p>
+<p>So the input is split into R groups. Each group is sorted in parallel by a small network that outputs only its top 16. The groups are then merged two by two in a binary tree of merging networks, each taking two sorted lists of 16 and returning the top 16. Candidates that cannot be among the final 16 are dropped early.</p>
+<p>The number of groups can be anything from 1 to 22. Beyond that a group would have fewer than 16 inputs. SNpy generated and optimised the networks for all 22 options and tabulated steps and comparators. Two effects pull in opposite directions: more groups means smaller and faster sorters, but the merging tree is most efficient when the number of groups is a power of two. The two best options were 16 groups of 22 and 22 groups of 16, both with 35 steps.</p>
+
+<p>The table that SNpy produced for this search is on the slide below, with the two winners circled. The left column of the drawing shows the reasoning in pictures: a plain merge sort of 352 inputs ends with a merger of two lists of 176, while the divide-and-conquer version only ever merges lists of 16.</p>
+
+<figure><img src="../img/blog-sorting-divide.jpg" alt="Three ways to split 352 inputs drawn as block diagrams, next to a table of steps and comparators for every number of groups from 1 to 22, with the rows for 16 and 22 groups circled" width="1600" height="805" loading="lazy"><figcaption>The divide-and-conquer options, all evaluated before any hardware was built (PhD technical defence slides).</figcaption></figure>
+<p>For exactly those two sizes, networks faster than Batcher's are known: a 16-input network by Van Voorhis (1972) and a 22-input network by Sherenaz Al-Haj Baddar (2009), which takes 12 steps where merge-exchange takes 15. With the Baddar network, the option with 16 groups comes down to 32 steps: 12 for sorting and four levels of 5-step mergers. The merging part cannot be improved, because Batcher's odd-even merger is optimal for two lists of equal power-of-two length.</p>
+
+<figure><img src="../img/blog-sorting-baddar.jpg" alt="The complete 352-input network drawn as a Knuth diagram, and the tree of sorters S and mergers M that it implements" width="1600" height="805" loading="lazy"><figcaption>The final network: 22-input Baddar sorters followed by a tree of (16,16) mergers, 32 steps in total. The slide counts 2,496 compare-exchanges; the final count in the thesis, after the last optimisations, is 2,528 (PhD technical defence slides).</figcaption></figure>
+<p>The result has 32 steps where the Batcher network has 45, and 2,528 comparators where it has 4,446. Prof. Al-Haj Baddar later sat on my thesis jury.</p>
+
+<h2>Checking the network</h2>
+<p>With the zero-one principle, the 22-input sorter was tested with all 2<sup>22</sup> binary inputs and the merger with every pair of sorted 16-element lists. That is sufficient. The complete network cannot be tested exhaustively, since it has 2<sup>352</sup> binary inputs, so a random sample of 2<sup>30</sup> was run as well, without an error.</p>
+
+<h2>The same network, twice</h2>
+<p>SNpy produces the list of 2,528 compare-exchange pairs. From there the two implementations go separate ways.</p>
+
+<figure><img src="../img/blog-sorting-flows.png" alt="Flow chart: the list of compare-exchange pairs feeds two branches. The RTL branch groups pairs into stages, generates pipelining configurations and VHDL. The HLS branch generates C++ and runs the vendor HLS flow. Both end in the vendor RTL flow and the FPGA" width="1400" height="395" loading="lazy"><figcaption>The two design flows. Yellow blocks are done by SNpy (PhD thesis, Fig. 8.1).</figcaption></figure>
+
+<p>For RTL, the pairs are grouped into the 32 steps, and I wrote configurable VHDL in which a generic selects after which steps a pipeline register is placed. I had hoped to let the tools distribute the registers by retiming. With two different synthesis tools the registers never moved more than a few logic levels from where they started, so the pipelining is described explicitly.</p>
+<p>For HLS, the C++ applies a compare-exchange function to a constant array holding the 2,528 pairs. Parallelism and pipelining are not written down. The tool infers them from the data dependencies and from a directive that sets the latency.</p>
+<p>The logic runs at 160 MHz, four times the bunch-crossing rate. For each approach an automated flow built 64 variants, differing in latency, in whether the full candidate data or only the sort key travels through the network, and in a few tool options.</p>
+<p>Both approaches meet timing with five clock cycles: 31.25 ns, about 15% of the budget. The best HLS variant has a worst negative slack of 540 ps against 370 ps for the best RTL one, uses 54,216 look-up tables against 63,593, and 23,144 flip-flops against 20,281, at the same estimated 6.3 W.</p>
+
+<figure><img src="../img/blog-sorting-comparison.jpg" alt="Comparison table of the best RTL and HLS implementations with timing slack, power, LUTs and flip-flops, and notes on the advantages of HLS" width="1600" height="805" loading="lazy"><figcaption>The comparison in one table: HLS with better timing slack and fewer LUTs, slightly more flip-flops, the same power (PhD technical defence slides).</figcaption></figure>
+<p>The difference was in the effort. I estimate that the RTL design took at least ten times longer. The HLS test bench is ordinary software and can find functional errors before synthesis. RTL variants took up to a day to build where the HLS equivalent took under an hour, and some RTL variants had not finished after 30 days.</p>
+
+<h2>What I conclude, and what I do not</h2>
+<p>This comparison covers one design: wide, regular, feed-forward, with no control logic. For that kind of block, HLS gave slightly better results for much less work. I would not extend the numbers to other kinds of design without measuring again.</p>
+<p>SNpy is open source on GitHub and PyPI. The complete network, with the table of pairs for each step, is in chapter 7 of the <a href="../docs/phd-thesis.pdf">thesis (PDF)</a>.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="ibertpy.html"><small>Previous post</small>Testing 300 transceivers without touching them: IBERTpy</a><a class="next" href="timing-distribution.html"><small>Next post</small>Timing distribution for the High-Luminosity LHC</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>

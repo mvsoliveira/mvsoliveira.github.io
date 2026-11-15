@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Testing 300 transceivers without touching them: IBERTpy</title>
+<meta name="description" content="IBERTpy automates bit-error-rate tests, eye scans, mask checks and reporting for boards with hundreds of high-speed serial links.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>Testing 300 transceivers without touching them: IBERTpy</h1>
+  <p class="meta"><span class="postmeta"><time>2018</time><span class="tag" data-t="t_tools">Tools</span></span>Written from chapter 3 of my PhD thesis (EPFL, 2021) and the MUCTPI serial link test report (2019).</p>
+  <p class="doclinks"><a href="../docs/phd-thesis.pdf">PhD thesis (PDF)</a><a href="../docs/muctpi-serial-link-test-report.pdf">Serial link test report (PDF)</a><a href="https://github.com/mvsoliveira/IBERTpy">IBERTpy on GitHub</a><a href="../theses/phd.html">Thesis summary</a></p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">The upgraded muon interface of ATLAS (MUCTPI) is a single board with 334 high-speed serial links: 208 optical inputs from the muon sector logic, optical outputs to other trigger processors, and links between its own FPGAs. Each one has to be shown to work before the board goes anywhere near the experiment, and there were three prototype versions. Doing that by hand in the vendor's graphical tool does not scale. IBERTpy is the Python package I wrote to do it from a script.</p>
+
+<h2>What "works" means for a link</h2>
+<p>The figure of merit is the bit error rate (BER). For the sector logic inputs we decided that one bit error per link per day was acceptable: at worst one false trigger or one lost event in a day. At 6.4 Gb/s that corresponds to a BER of 1.8 × 10<sup>−15</sup>.</p>
+<p>An error rate cannot be measured exactly, because that would take an infinite number of bits. What can be stated is that it lies below a limit with a certain confidence. For a test in which no error is seen, the confidence level is 1 − e<sup>−γn</sup>, where γ is the limit and n the number of bits received. Turned around: to claim fewer than one error per day with 95% confidence, a link has to run for about three days without an error.</p>
+<p>A BER test gives a clear pass or fail and no information about why. For that one looks at an eye diagram. Xilinx transceivers can measure a statistical eye by themselves, with a second sampler in the receiver whose time and voltage offsets are programmable. It counts how often that sampler disagrees with the main one. The scan does not disturb the data and needs no external instrument.</p>
+<p>The scan has its own limit. Each point is measured down to a target BER, which I set to 10<sup>−7</sup>. A full eye of 32,895 points then takes about a minute. The same scan with a target of 10<sup>−15</sup> would take about 190 years. So the eye diagram shows the shape of the opening and how links compare, and the long BER run gives the number.</p>
+<p>To avoid judging eyes by looking at them, I used a mask: a region in the middle of the eye where errors must not appear. The mask comes from the manufacturer of the optical modules (Broadcom MiniPOD) and is applied with the hit-ratio method, which tolerates a BER of up to 5 × 10<sup>−5</sup> inside the mask. A link passes or fails.</p>
+
+<p>Each of these techniques answers a different question, and none answers all of them. A BER test gives an error probability below a threshold with a known confidence, but says nothing about how to improve a link. An eye diagram shows the shape of the signal but gives no verdict. A mask adds the verdict to the eye. A histogram of the open area over many links gives the overview and makes boards comparable. IBERTpy produces all four.</p>
+
+<figure><img src="../img/blog-ibertpy-techniques.jpg" alt="Four panels: a BER test block diagram, optical and electrical eye diagrams, an eye diagram with a mask, and a histogram of open areas" width="1600" height="805" loading="lazy"><figcaption>The four techniques and what each one provides (PhD technical defence slides).</figcaption></figure>
+
+<h2>The manual way</h2>
+<p>The test firmware is built on the Xilinx IBERT core, which contains a pattern generator and checker, the error and bit counters, and access to the transceiver settings over JTAG. In Vivado one then has to tell the tool which transmitter is connected to which receiver, set the polarity of each end, configure the pattern, start the scans and save the results. On this board channels are swapped and polarities inverted in many places, because that was allowed in order to simplify the layout. Entering 334 links by hand, for each prototype and at each bit rate, is slow, and a mistake is easy to make and hard to notice.</p>
+
+<h2>What IBERTpy does</h2>
+<p>The package takes the connectivity and the polarities from <a href="pcbpy.html">PCBpy</a>, which extracts them from the netlist of the board. From there:</p>
+<p>It generates the TCL scripts that create the links in Vivado, set the polarity of each one, run the BER tests and run the eye scans. Vivado executes them and writes the BER results and the eye data to CSV files. IBERTpy reads the CSV files, plots each eye diagram, applies the mask, and builds histograms of the horizontal opening, the vertical opening and the open area. Finally it compiles everything into a PDF report.</p>
+<p>Vivado does not need a cable to the board. It connects over Ethernet to a hardware server running on the system-on-chip of the MUCTPI, which drives the JTAG chain of the FPGAs. Once the loopback fibres are in place, a test campaign runs remotely, which is the "without touching them" in the title.</p>
+
+<figure><img src="../img/blog-ibertpy-report.png" alt="Three pages of a generated report: a table of contents, a page with twelve small eye diagrams of one optical module, and a detail page with one large eye diagram and its settings table" width="1400" height="922" loading="lazy"><figcaption>Three pages of a generated report: contents, the twelve channels of one MiniPOD side by side, and the detail page of one link (PhD thesis, Fig. 3.9).</figcaption></figure>
+
+<p>The report is built for a reader with several hundred eye diagrams to get through. The table of contents links to a summary page per optical module, where the twelve channels of one MiniPOD are shown together and a channel that differs from its neighbours stands out. Each small eye links to a detail page with the transceiver type, time stamps, openings, scan settings and software version.</p>
+
+<h2>What came out</h2>
+<p>Two long runs were made at 12.8 Gb/s, twice the rate needed for Run 3, as a stress test. On the second prototype, 112 transceivers ran together for ten days. On the third, 264 transceivers were tested, including all 208 sector logic inputs. Two boards together do not have enough optical transmitters to drive all inputs of one board at once, so this run was split into two parts of three days each. No errors were seen in either run. For the 208 inputs that gives a BER below 9 × 10<sup>−16</sup> at 95% confidence, which is fewer than one error per day per link at 12.8 Gb/s.</p>
+<p>The histograms turned out to be the most useful part for comparing boards. On the first prototype the open area at 6.4 Gb/s ranged from 55% to 80%, and the histogram had two separate groups. They corresponded to the two transceiver types in that FPGA, GTH and GTY. In the histogram the difference was visible at a glance. The second prototype used one transceiver type and showed one group, from 66% to 78%. The third, with one equalisation setting of the optical transmitters changed, went from 70% to 78%, with an average of 75%.</p>
+
+<figure><img src="../img/blog-ibertpy-loopback.jpg" alt="Summary slide with eye diagrams of the best and worst links at 6.4 and 12.8 Gb/s, an optical eye diagram, and open-area histograms for prototypes V1, V2 and V3" width="1600" height="805" loading="lazy"><figcaption>Loopback results on the three prototypes. The V1 histogram has two groups, one per transceiver type; V2 and V3 have one (PhD technical defence slides).</figcaption></figure>
+<p>At 12.8 Gb/s the eyes are smaller, 39% to 63% on the third prototype. Every link on every prototype still passed the mask at both rates. The worst one at 12.8 Gb/s passed with little margin: there were errors in one corner of the mask, below the permitted hit ratio.</p>
+<h2>Beyond the loopback</h2>
+<p>Loopback tests show that the board can talk to itself. The real links go to other boards, so the same tools were used in integration tests with the systems on either side. With sector logic modules at 6.4 Gb/s there were no bit errors over an overnight run and the open area was between 58% and 74%. Towards the topological processor, L1Topo, at 11.2 Gb/s there were no errors after a 40-hour run and the open area was between 50% and 64%.</p>
+<p>These tests also measured how much margin the optical budget has. Attenuating the light step by step and repeating the eye scan shows when the eye starts to close. Both links still had good eyes with about 7 dB of extra attenuation.</p>
+
+<figure><img src="../img/blog-ibertpy-integration.jpg" alt="Eye diagrams from integration tests: a grid of eyes from sector logic links at 6.4 Gb/s, the best and worst L1Topo links at 11.2 Gb/s, and eyes measured at increasing optical attenuation from 5.25 to 9.25 dB" width="1600" height="805" loading="lazy"><figcaption>Integration tests with the sector logic and with L1Topo, and the eye at increasing optical attenuation (PhD technical defence slides).</figcaption></figure>
+
+
+
+<p>The full report for the second and third prototypes is on this site as the <a href="../docs/muctpi-serial-link-test-report.pdf">serial link test report (PDF)</a>.</p>
+
+<h2>Reuse</h2>
+<p>IBERTpy is on GitHub and PyPI. At CERN it has also been used to produce the eye diagrams of the Barrel Calorimeter Processor, a board of the CMS experiment.</p>
+<p>The operational firmware of the MUCTPI has a serial link monitoring unit built on the same eye-scan feature. It can measure the eye of all 104 inputs of an FPGA while real data is being received, without interrupting it. Those eyes are wider than the ones in the test report, because 8b10b data has shorter runs of identical bits than the PRBS-31 pattern used for the tests, and therefore less data-dependent jitter.</p>
+
+<h2>In short</h2>
+<p>With hundreds of links the measurement itself is the small part. The work is in the mapping, the bookkeeping and the reporting, and a script does all three the same way every time. A pass or fail criterion, the mask, removes the opinion from "this eye looks fine". And a histogram of all links shows things that no single eye diagram does.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="pcbpy.html"><small>Previous post</small>Checking PCB schematics with a script: PCBpy</a><a class="next" href="sorting-networks.html"><small>Next post</small>Sorting networks in RTL and in HLS: SNpy</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>

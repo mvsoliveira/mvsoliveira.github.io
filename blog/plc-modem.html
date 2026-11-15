@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building the first Latin American power-line modem</title>
+<meta name="description" content="FPGA blocks for the physical layer of an HS-OFDM power-line modem at UFJF: a multiplier-free QAM detector, a low-cost timing synchroniser, verification against the model, and a Verilog course.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>Building the first Latin American power-line modem</h1>
+  <p class="meta"><span class="postmeta"><time>2008–11</time><span class="tag" data-t="t_fw">Firmware</span></span>Written from my bachelor's thesis (UFJF, 2011), the ITS 2010 paper and my 2011 Verilog course.</p>
+  <p class="doclinks"><a href="https://biblioteca.sbrt.org.br/articles/227">ITS 2010 paper</a><a href="../docs/bachelor-thesis.pdf">Bachelor's thesis (PDF, in Portuguese)</a><a href="../docs/verilog-course-2011.pdf">Verilog course (PDF, in Portuguese)</a><a href="../theses/bachelor.html">Thesis summary</a></p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">My first job in engineering was in a university laboratory in Juiz de Fora, in Brazil, on a project to build the first Latin American modem for communication over power lines. I joined in 2008, in the middle of my degree, after placing first in the selection for the project, and stayed until I left for CERN in 2011. It is where I learnt to design hardware, and most of what I did later grew out of habits formed there.</p>
+
+<h2>Data over the electrical grid</h2>
+<p>Power-line communication (PLC) sends data over the wires that already carry electricity, so a building or a neighbourhood gets a data network without new cables. The idea is attractive and the channel is hostile. Power lines were not designed for high frequencies: every appliance plugged in changes the impedance, branches and junctions create echoes, and motors, dimmers and switching power supplies inject impulsive noise. A modem that works on this channel has to cope with all of that at once.</p>
+<p>The standard answer, also used in Wi-Fi and digital television, is OFDM: instead of sending one fast stream on one carrier, the transmitter spreads the data over hundreds of narrow, overlapping but orthogonal subcarriers and sends them together as a block, a symbol. Echoes are absorbed by a short guard interval, a copy of the end of each symbol placed in front of it, called the cyclic prefix. Each subcarrier can be loaded with as many bits as its own signal-to-noise ratio allows.</p>
+<figure><img src="../img/blog-plc-ofdm.jpg" alt="Slide with a plot of overlapping sinc-shaped subcarrier spectra, each peak at the zeros of the others" width="1100" height="783" loading="lazy"><figcaption>OFDM in one picture: each subcarrier peaks where all the others are zero, which is what keeps them apart (bachelor's defence slides, 2011).</figcaption></figure>
+
+<p>The modem in our laboratory, the Signal Processing and Telecommunications Laboratory of the Federal University of Juiz de Fora, used a variant called Hermitian-symmetric OFDM (HS-OFDM). By making the spectrum symmetric, the transmitted signal becomes purely real, which suits a baseband channel like a power line and, as it turned out, simplifies the receiver too. The project was funded by Brazilian agencies, among them FINEP, CNPq, FAPEMIG and CAPES.</p>
+
+<h2>My part: blocks of the physical layer</h2>
+<p>The physical layer of a modem is a chain of signal processing blocks: mapping bits onto constellation points, the transform that builds the OFDM symbol, the cyclic prefix, and on the receiving side the same chain in reverse, preceded by synchronisation and equalisation. My job was to specify some of those blocks, simulate them in MATLAB, write them in Verilog for Altera FPGAs, verify them in functional and timing simulation, and test them on evaluation kits.</p>
+<p>Two of them are documented in public.</p>
+
+<h2>Detecting very large constellations cheaply</h2>
+<p>To reach high data rates on good subcarriers, a PLC modem uses very large QAM constellations, with thousands of points. The receiver must decide which point was sent. The textbook detector computes the distance from the received sample to every point and takes the closest, which needs multipliers and grows with the size of the constellation.</p>
+<p>With colleagues in the lab I worked on a cheaper detector, published at the International Telecommunications Symposium in 2010. Square QAM constellations are regular, so the decision regions are rectangles whose edges are multiples of the distance between points. After clipping, offsetting and quantising the received sample, the detector only needs comparisons, no multiplications at all, and a small table maps the region to bits. We called it the heuristic decision region approach.</p>
+<p>On an Altera Stratix III, the 16-QAM detector needed 56 logic cells and no multipliers, ran at 500 MHz and had one clock cycle of latency. The conventional maximum-likelihood detector needed 409 logic cells and 32 multipliers and ran at 226 MHz with four cycles of latency. The same approach scaled to 4,096-QAM with 847 logic cells, still in one cycle. In simulation the loss against the theoretical curve stayed between 0.03 and 0.15 dB, depending on the constellation.</p>
+<p>That result is the one I still think about most. The saving did not come from a cleverer circuit for the same operation. It came from noticing that, for this particular problem, the expensive operation was not needed.</p>
+
+<h2>Finding where each symbol begins</h2>
+<p>My bachelor's thesis was the synchroniser of the receiver: the block that finds where each OFDM symbol begins in the incoming stream. If the cut is a few samples off, every subcarrier is corrupted at once. The established methods compare a window of samples with the window one symbol later, using the cyclic prefix as a fingerprint, and differ in how they measure the match.</p>
+<p>The same observation as with the detector applied here. Because the HS-OFDM signal is real, the match can be measured by subtracting the two windows and adding up the absolute differences, with no multiplication. I called this estimator MMAE, minimum mean absolute error. In simulation it was the most accurate of the four methods compared, as long as transmitter and receiver agree in frequency, which on a cable they do.</p>
+<p>The FPGA implementation used another trick that made all four affordable: the sum over the window does not need to be recomputed for every sample. Adding the newest term and subtracting the oldest one is enough, so the cost no longer depends on the window length.</p>
+<figure><img src="../img/blog-plc-recursion.jpg" alt="Block diagrams of the recursive implementation of the correlation and MMAE estimators, with delay lines, an accumulator and an absolute value block" width="1100" height="783" loading="lazy"><figcaption>The sliding-window sums computed recursively: add the newest term, subtract the oldest (bachelor's defence slides, 2011).</figcaption></figure>
+
+<p>Around the estimator, a peak detector and a pulse generator complete the synchroniser. On an Altera Cyclone II the MMAE estimator needed the least logic of the four, the classical correlation one came close, and the maximum-likelihood one needed several times more, because it multiplies, divides and takes square roots.</p>
+<figure><img src="../img/blog-plc-synchroniser.jpg" alt="Block diagram of the synchroniser (estimator, peak detector, pulse generator) and a bar chart of logic cells, registers and memory blocks for the four estimators" width="1100" height="783" loading="lazy"><figcaption>The synchroniser and the FPGA resources of each estimator (bachelor's defence slides, 2011).</figcaption></figure>
+
+<p>The whole design is described in the <a href="../theses/bachelor.html">summary of my bachelor's thesis</a>, in plain words and in technical terms.</p>
+
+<h2>Verification, written down</h2>
+<p>The habit I am most grateful for is checking hardware against a model, number by number. For the synchroniser, a program fed the same data to the Verilog design in simulation and to the MATLAB model and compared their outputs, block by block, until they were identical. Because every bus was sized so that nothing was truncated, identical was the right target, not "close enough".</p>
+<figure><img src="../img/blog-plc-verification.jpg" alt="Simulation waveform of the peak detector input with sharp peaks at each symbol start, and the estimated symbol index below it" width="1100" height="783" loading="lazy"><figcaption>Verification in simulation: the estimator output and the symbol start it finds (bachelor's defence slides, 2011).</figcaption></figure>
+
+<p>In 2009 I also wrote one of the lab's standard operating procedures, on running functional and timing simulation from Quartus II with ModelSim through NativeLink. It explains the difference between the two: functional simulation checks what the design does, timing simulation checks whether it still does it once the real delays of the chip are included, and the same design and test bench can serve for both. It is a small document. It was the first time I wrote down a procedure so that the next person would not have to discover it again, and I have kept doing that since.</p>
+
+<h2>Teaching the team Verilog</h2>
+<p>In 2011, before leaving for CERN, I wrote and taught a Verilog course for the modem team, focused on code that synthesises well: 120 slides in Portuguese, from the difference between writing software and describing hardware to test benches. The slides I would still keep are the ones about the mistakes everyone makes once.</p>
+<p>The most important is the difference between blocking and non-blocking assignment. Inside a clocked block, writing <code>a = in; b = a; out = b;</code> with blocking assignments builds a single register, because each line sees the new value of the previous one. Writing the same with non-blocking assignments builds three registers in a row, a shift register. The code looks almost the same, and the hardware is different.</p>
+<figure><img src="../img/blog-plc-blocking.jpg" alt="Two clocked Verilog blocks side by side, one with blocking and one with non-blocking assignments, and the synthesised schematics: one register versus three registers in series" width="1100" height="783" loading="lazy"><figcaption>Blocking versus non-blocking assignment: one register or three, from nearly the same code (Verilog course slides, 2011).</figcaption></figure>
+
+<p>To explain why, I used an analogy that the course calls the fruit idea. An apple is the fruit of a seed, so the apple cannot change the seed that produced it. It can only produce new seeds, for the next season. In a clocked circuit, the value a register takes at a clock edge is the fruit of that edge: it cannot influence what the other registers capture at the same edge, only what they capture at the next one.</p>
+<figure><img src="../img/blog-plc-fruit.jpg" alt="Slide with three registers in series between an input and an output, sharing a clock, used to explain what each register captures at a clock edge" width="1100" height="783" loading="lazy"><figcaption>The fruit idea, applied to three registers in series (Verilog course slides, 2011).</figcaption></figure>
+
+<p>The other classic is the inferred latch: in a combinational block, if some branch of an if-else or a case does not assign a value to an output, the tool has to remember the old value, and it builds a latch to do so. The rule I gave was short: in combinational logic, every output gets a value in every branch.</p>
+<figure><img src="../img/blog-plc-latch.jpg" alt="Slide explaining that an if-else in a combinational block that does not define the output in every condition infers a latch, with a code example" width="1100" height="783" loading="lazy"><figcaption>The inferred latch, and the rule that avoids it (Verilog course slides, 2011).</figcaption></figure>
+
+<p>The course slides are on this site, linked at the top of the page.</p>
+
+<h2>What I took with me</h2>
+<p>Looking back from fifteen years of trigger electronics, three things from this project stayed. Look for the special property of your problem before optimising the circuit: a real-valued signal removed the multipliers from two different blocks. Size every bus so that the hardware matches the model exactly, and then check that it does. And write things down for the next person. The tools have changed many times since, but those three have not.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="next" href="muon-topology.html"><small>Next post</small>Teaching a trigger where the muons are</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Starting with HLS: from a logic gate to a FIR filter</title>
+<meta name="description" content="A first session on high-level synthesis, from one AND gate through bit widths, pipelining and loop unrolling to a pipelined FIR filter, as taught at the US AHEAD bootcamp.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>Starting with HLS: from a logic gate to a FIR filter</h1>
+  <p class="meta"><span class="postmeta"><time>2025</time><span class="tag" data-t="t_teach">Teaching</span></span>Written from my Starting with HLS session at the US AHEAD bootcamp (BNL, June 2025).</p>
+  <p class="doclinks"><a href="../docs/starting-with-hls.pdf">Slides (PDF)</a></p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">In June 2025 I taught a session called Starting with HLS at the US AHEAD bootcamp at Brookhaven National Laboratory. It was aimed at people who know C++ and want to see what happens when that C++ becomes hardware. The session had no theory slides. It was a sequence of short code snippets, each one a small change from the previous, and for each one we looked at what the tool built. This post follows the same path, from a single logic gate to a pipelined FIR filter.</p>
+
+<p>The examples use AMD Vitis HLS. The ideas carry over to other tools, though the pragmas are spelled differently.</p>
+
+<h2>One gate, and a surprise</h2>
+<p>The first example is the smallest function I could think of: two booleans in, their AND out.</p>
+<pre><code>void logic_operator(bool a_i, bool b_i, bool &amp;q_o) {
+  q_o = a_i &amp; b_i;
+}</code></pre>
+<p>The question to the room was what hardware to expect. A single AND gate is the honest answer, and it is not what you get. The tool adds a block-level handshake by default: a clock, a reset, start and done signals, and handshake ports around each argument. That is useful when the function is an accelerator that a processor starts and waits for. It is noise when the function is meant to be a piece of a trigger datapath.</p>
+<figure><img src="../img/blog-hls-04.jpg" alt="Slide showing the logic operator code next to the generated schematic, with many interface ports added around a single AND gate" width="1500" height="844" loading="lazy"><figcaption>The first snippet: one AND gate, and a set of interface ports nobody asked for (Starting with HLS slides).</figcaption></figure>
+
+<p>To get rid of them you have to ask, with interface pragmas: <code>ap_ctrl_none</code> on the return to remove the block handshake, and <code>ap_none</code> on each argument to make it a plain wire. After that the schematic is an AND gate and almost nothing else. The reset stays, because synchronous circuits need one and Vitis adds it by default.</p>
+<p>The next three snippets swap the AND for an addition, an if-else and an if-else that chooses between an addition and a subtraction. They make one point that surprises software people: an <code>if</code> does not choose which code runs. Both branches are built in hardware, side by side, and a multiplexer chooses which result goes to the output. An integer is 32 bits wide by default, so every one of those adders is 32 bits wide too.</p>
+
+<h2>Make it as big as it needs to be</h2>
+<p>In C++ an <code>int</code> is a convenience. In hardware every bit is a wire, a flip-flop or a slice of logic. The arbitrary-precision types <code>ap_int&lt;N&gt;</code> and <code>ap_uint&lt;N&gt;</code> let you state the width you actually need, and they are the single most important change when moving code from software to HLS.</p>
+<p>With the width in your hands, you can also get it wrong. The slides show this with pictures. Each heat map has the two 8-bit inputs on the axes and the output value as the colour. With a 9-bit output, the sum of two 8-bit unsigned numbers is a smooth gradient: it always fits. With an 8-bit output, half of the plane wraps around to zero along the diagonal, and the map turns into two triangles. A multiplication into too few bits is worse: the picture becomes an interference pattern, because almost every result has overflowed.</p>
+<figure><img src="../img/blog-hls-13.jpg" alt="Two heat maps: the sum of two 8-bit unsigned inputs with a 9-bit output is a smooth gradient, with an 8-bit output it wraps along the diagonal" width="1500" height="844" loading="lazy"><figcaption>Addition of two 8-bit numbers. Left: 9-bit output, no overflow. Right: 8-bit output, the upper half wraps around (Starting with HLS slides).</figcaption></figure>
+
+<figure><img src="../img/blog-hls-17.jpg" alt="Two heat maps of an 8-bit by 8-bit signed product: a smooth 16-bit result on the left and a chaotic interference pattern for an 8-bit result on the right" width="1500" height="844" loading="lazy"><figcaption>Multiplication of two signed 8-bit numbers. With a 16-bit output the result is exact; with 8 bits almost every value has wrapped (Starting with HLS slides).</figcaption></figure>
+
+<p>The rule that came out of it fits on one line. For an addition the output needs one bit more than the wider input, Q = max(A, B) + 1. For a multiplication it needs the sum of the input widths, Q = A + B. Anything less and the result is not an approximation, it is wrong.</p>
+
+<h2>Adding a clock</h2>
+<p>All of this is combinational. The third part of the session added registers. Writing <code>register</code> in the interface pragma of the output puts a flip-flop after the logic. The <code>PIPELINE</code> pragma tells the tool to accept a new input every clock cycle and to insert registers wherever its timing model says they are needed.</p>
+<p>State is where HLS looks most unlike software. A counter needs a value that survives from one call of the function to the next, and in HLS that is a <code>static</code> variable. Each call of the function is one clock cycle of the hardware. A static variable is a register.</p>
+
+<h2>Six versions of a four-input adder</h2>
+<p>The longest exercise was a function that adds the four elements of an array of 8-bit numbers into a 10-bit result. The code hardly changes over six versions. Only the pragmas do, and the hardware changes completely.</p>
+<pre><code>ap_uint&lt;10&gt; sum = 0;
+for (int i = 0; i &lt; 4; i++) {
+  sum += a_i[i];
+}
+q_o = sum;</code></pre>
+<p>Without any pragma the loop is a loop in hardware too: one adder, used four times, with a small state machine that walks through the elements. With the array partitioned into four separate ports, the second version reports a latency of five clock cycles and accepts a new input only every four. That is a loop in silicon, and it is cheap.</p>
+<figure><img src="../img/blog-hls-27.jpg" alt="Code of the second adder version with the ARRAY_PARTITION pragma highlighted, the generated ports a_i_0 to a_i_3, and a report showing 5 cycles of latency and an interval of 4" width="1500" height="844" loading="lazy"><figcaption>Version 2: the array is split into four ports, but the loop still runs one addition per cycle (Starting with HLS slides).</figcaption></figure>
+
+<p>Unrolling the loop by a factor of two halves the number of iterations. Unrolling it completely gives three adders in a tree and no state machine at all. Adding a register at the output and then the <code>PIPELINE</code> pragma gives the final version: one clock cycle of latency, a new result every cycle, two 9-bit adders feeding a 10-bit one, and a register at the output. The synthesis report shows 23 look-up tables and 10 flip-flops.</p>
+<figure><img src="../img/blog-hls-33.jpg" alt="Code of the sixth adder version with PIPELINE and UNROLL pragmas, the report showing 1 cycle latency and interval 1, and the schematic with an adder tree and an output register" width="1500" height="844" loading="lazy"><figcaption>Version 6: fully unrolled and pipelined, one result per clock cycle (Starting with HLS slides).</figcaption></figure>
+
+<p>The lesson is not that one version is right. Each one is the right answer to a different question. If the result is needed once every four cycles, version 2 is the efficient one. If it is needed every cycle, version 6 is. In HLS that choice is a pragma, and it can be revisited when the requirement changes.</p>
+
+<h2>A FIR filter</h2>
+<p>The session ended with a four-tap FIR filter, the classic block of digital signal processing: keep the last four samples in a shift register, multiply each by a coefficient and add the products. The first version is written exactly like that, with the shift register as a static array and the multiply-accumulate written out term by term.</p>
+<figure><img src="../img/blog-hls-34.jpg" alt="Code of the first FIR filter version: a static shift register of four samples and a multiply-accumulate with four coefficients into an 18-bit accumulator" width="1500" height="844" loading="lazy"><figcaption>FIR version 1: a static shift register and an explicit multiply-accumulate (Starting with HLS slides).</figcaption></figure>
+
+<p>Later versions replace the four coefficient arguments by an array, write the shift and the multiply-accumulate as loops, and then add the same pragmas as for the adder: partition the coefficient array, unroll the loops, pipeline the function. The 18-bit accumulator follows from the rule above: an 8-bit sample times an 8-bit coefficient needs 16 bits, and the sum of four products needs two more.</p>
+<p>The last version uses four DSP blocks, 17 look-up tables and 37 flip-flops, and closes timing with more than 7 ns of slack. The code is short enough to read in one glance, and it is ordinary C++ that a test bench can call a million times before any hardware is built.</p>
+<figure><img src="../img/blog-hls-45.jpg" alt="Utilisation table of the final FIR version showing 17 LUTs, 37 flip-flops and 4 DSP blocks, a timing summary with all constraints met, and the generated schematic" width="1500" height="844" loading="lazy"><figcaption>FIR version 6: four DSP blocks, a handful of LUTs and flip-flops, timing met (Starting with HLS slides).</figcaption></figure>
+
+
+<h2>What I wanted people to leave with</h2>
+<p>Three things. First, the tool does what you say, not what you mean, and its defaults are made for accelerators, not for datapaths. Look at the schematic, not only at the code. Second, width is a design decision, and the overflow rules are simple enough to apply every time. Third, the same C++ can become very different hardware, and the pragmas are the place where that decision lives. That is also why HLS is worth learning: the decision can be changed late in a project, by changing one line, without rewriting the design.</p>
+<p>During the same bootcamp I also presented how we had used HLS in production for the ATLAS calorimeter trigger. That story is in <a href="hls-calorimeter.html">a separate post</a>. The full slides of this session are linked at the top of the page.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="inter-fpga-links.html"><small>Previous post</small>Talking between FPGAs on the same board</a><a class="next" href="global-trigger-mux.html"><small>Next post</small>Architecting the Global Trigger multiplexer</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>

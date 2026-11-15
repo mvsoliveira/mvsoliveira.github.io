@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Synchronising more than 100 serial links in one FPGA</title>
+<meta name="description" content="A dual-port-memory block that brings 208 serial inputs into one clock domain with low, fixed latency, calibrated once, for the ATLAS MUCTPI.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>Synchronising more than 100 serial links in one FPGA</h1>
+  <p class="meta"><span class="postmeta"><time>2016–19</time><span class="tag" data-t="t_fw">Firmware</span></span>Written from chapter 5 of my PhD thesis (EPFL, 2021).</p>
+  <p class="doclinks"><a href="../docs/phd-thesis.pdf">PhD thesis (PDF)</a><a href="../docs/phd-private-defense.pdf">Technical defence slides (PDF)</a><a href="../theses/phd.html">Thesis summary</a></p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">The upgraded muon interface of ATLAS (MUCTPI) receives 208 optical links from the muon sector logic, 104 in each of two FPGAs. Every link delivers one 128-bit frame per bunch crossing. Before any of it can be processed, all the frames from the same bunch crossing have to be present in the same clock domain, in the same clock cycle, after every reset and every power cycle. This post describes the block that does that.</p>
+
+<h2>What arrives</h2>
+<p>The links run at 6.4 Gb/s with 8b10b encoding. In the 25 ns of one bunch crossing, 160 bits are sent, which leaves 128 bits of payload: eight 16-bit words. The frame carries up to two muon candidates from a barrel (RPC) sector or four from an endcap (TGC) sector, global flags, a 12-bit bunch crossing identifier (BCID) and a CRC-8 over all of these. A control symbol (K29.7) marks the end of the trigger information, and the frame is padded with a comma symbol (K28.5) that the transceiver uses to find the word boundary.</p>
+<p>The FPGA transceiver recovers a clock from each data stream and hands over 16-bit words on that clock, at 320 MHz, one word every 3.125 ns. The processing logic runs on the system clock at 160 MHz, with an enable flag every fourth cycle to mark the 25 ns bunch-crossing period.</p>
+
+<h2>Two unknowns</h2>
+<p>Sender and receiver use the same reference clock, so the frequencies match exactly. The phase does not.</p>
+<p>The first unknown is the phase between each recovered clock and the system clock. Fibre lengths differ and components have part-to-part skew. I split this offset into two parts: a fraction of a bunch crossing, which I call synchronisation, and a whole number of bunch crossings, which I call alignment. Both are unknown, and both are constant as long as nobody changes the cabling.</p>
+<p>The second unknown is not constant. As described in <a href="transceiver-latency.html">the post on transceiver latency</a>, the receiver comes out of each reset with a latency that can differ by one recovered-clock period, 3.125 ns, in either direction. The block has to give the same output timing regardless.</p>
+
+<p>Put together, the requirements fit on one slide. A synchronisation offset smaller than 25 ns that must tolerate 3.125 ns of uncertainty, an alignment offset that is a whole number of bunch crossings, and a guarantee that the result is the same after every reset.</p>
+
+<figure><img src="../img/blog-sync-requirements.jpg" alt="Timing diagram of the system clock and the 16-bit word stream of one frame, from the BCID word through the end-of-frame marker, with the synchronisation offset A and alignment offset B marked" width="1600" height="805" loading="lazy"><figcaption>The three requirements: A, a synchronisation offset below 25 ns with 3.125 ns of uncertainty; B, an alignment offset of k × 25 ns; C, deterministic latency (PhD technical defence slides).</figcaption></figure>
+
+<h2>Dual-port memories and two pointers</h2>
+<p>The design uses small dual-port memories, 32 words deep, written with the recovered clock and read with the system clock. The candidate words go into two memories for a barrel input or four for an endcap input. Two more hold the flags with the BCID, and the CRC. Reading all of them at the same address returns a complete frame in the system clock domain.</p>
+
+<figure><img src="../img/blog-sync-ip.png" alt="Block diagram: write control in the recovered clock domain on the left, read control, BCID register and CRC check in the system clock domain on the right, three groups of dual-port memories between them" width="1400" height="1496" loading="lazy"><figcaption>The synchronisation block for one input. Left: recovered clock domain. Right: system clock domain (PhD thesis, Fig. 5.3).</figcaption></figure>
+
+<p>Everything depends on the two address pointers. A single alignment pulse, generated in the system clock domain, starts both. On the read side it loads a configurable offset into the read pointer, which then advances every 25 ns. On the write side the pulse first crosses into the recovered clock domain through a two-register synchroniser, with both registers constrained to the same FPGA slice. After that, the write pointer starts from zero and advances once per frame, each time the last word of a frame is received.</p>
+
+<h2>The frame-border problem</h2>
+<p>Suppose the alignment pulse arrives just before the last word of a frame. The write pointer starts with that frame. After the next reset the receiver latency is one period longer, the same pulse arrives just after that word, and the write pointer starts one frame later. The data is intact, but every frame now sits one address away from where it was, and the output is off by one bunch crossing. In simulation this shows up as a wrong BCID with a correct CRC.</p>
+<p>The tolerance to latency variation on the write side is one full frame period. It cannot be made longer, but it can be centred. The write control can delay the alignment pulse in eight steps of 3.125 ns, which covers the whole frame. Putting the pulse in the middle of the frame leaves the same margin on both sides.</p>
+
+<h2>Calibration, once</h2>
+<p>The block has two monitors on the read side. A register latches the BCID of the output frame each time the bunch counter reset arrives, once per LHC orbit. A CRC check recomputes the CRC-8 and counts mismatches. The two see different faults. A CRC error means that the memories returned pieces of two different frames, because reading and writing overlapped. A wrong BCID with a good CRC means a whole, valid frame from the wrong bunch crossing.</p>
+<p>The write-side calibration steps through the eight alignment delays and reads the latched BCID for each. At one of the steps the BCID changes: that is where the pulse crosses the frame border. The delay diametrically opposite to it puts the pulse at the frame centre, and that value is stored.</p>
+<p>The read-side calibration scans the read pointer offset. Read too early and the frame is not completely written yet. Read too late and the next cycle through the memory has started to overwrite it. Between these limits there is a range of error-free offsets, from minimum latency to maximum latency. Stepping through that range moves the output by whole bunch crossings, which is how alignment between inputs is done. For the lowest latency one takes the earliest offset that still leaves room for the receiver to be one period late.</p>
+<p>Both values are found once per input and loaded as fixed parameters from then on.</p>
+
+<h2>Simulation before hardware</h2>
+<p>The test bench is written in Python with Cocotb, driving ModelSim. The simulation swept the phase at calibration over the whole bunch crossing, and for each value swept the phase at running time around it. For some tests I went far beyond the real uncertainty, up to eight recovered-clock periods on each side, to see where the errors begin and how much margin there is.</p>
+<p>The calibration procedure was worked out here. The simulation also gave the latency of the block itself, measured from the end-of-frame word entering the memory to the complete frame leaving it: between 3.125 ns and 34.2 ns in the minimum-latency setting, depending on where the input phase happens to fall.</p>
+
+<p>The results are easiest to read as a map. In the figure below, the vertical axis is the phase of the input when the calibration was done, over a whole bunch crossing. The horizontal axis is the phase at running time, swept far beyond the real uncertainty to ±25 ns. Black means BCID errors, grey means error-free. Before calibration, the error-free band is not centred on the operating point, so a small shift in one direction already gives errors. After the one-time calibration, the operating point sits in the middle of the band for every possible input phase. The thin blue lines show the real uncertainty of 3.125 ns, well inside it.</p>
+
+<figure><img src="../img/blog-sync-calibration.jpg" alt="Diagram of the Cocotb test bench around the synchronisation IP, and maps of BCID errors versus calibration phase and running phase before and after the one-time calibration" width="1600" height="805" loading="lazy"><figcaption>The test bench (top left) and the margin maps. The one-time calibration makes the tolerance symmetric around the operating point (PhD technical defence slides).</figcaption></figure>
+
+<h2>On the bench</h2>
+<p>Integration tests with prototypes of the barrel and endcap sector logic used up to 12 links. Both ends raised a flag when the frame with BCID 0 passed, and an oscilloscope measured the distance between the flags. After correcting for fibres and cables, the total from the sender's 40 MHz logic to the MUCTPI system clock was about 109 ns for the barrel input and about 112 ns for the endcap input, between four and five bunch crossings, within the range predicted by the simulation and inside the MUCTPI budget of 200 ns.</p>
+<p>The phase between the two flags did not move after resetting and power cycling both systems. The CRC error counters stayed at zero after repeated resets and over an overnight run.</p>
+
+<figure><img src="../img/blog-sync-integration.jpg" alt="Diagram of a sector logic module connected to the MUCTPI, with oscilloscope captures showing the transmitter flag and the receiver flag" width="1600" height="805" loading="lazy"><figcaption>The integration test: a flag on each side when the frame with BCID 0 passes, and the distance between them on the oscilloscope, about 110 ns in total (PhD technical defence slides).</figcaption></figure>
+
+<h2>Notes for a similar design</h2>
+<p>The 3.125 ns of receiver uncertainty could have been removed inside the transceiver, at the cost of modifying the vendor's IP. Absorbing it here was simpler, and the simulation showed that the block tolerates more variation than the links produce. The other thing I would repeat is to build the monitors, BCID and CRC, into the block from the start. They are what makes a one-time calibration possible.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="muon-topology.html"><small>Previous post</small>Teaching a trigger where the muons are</a><a class="next" href="transceiver-latency.html"><small>Next post</small>Making transceiver latency deterministic</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>High-level synthesis in production: calorimeter firmware</title>
+<meta name="description" content="How part of the ATLAS Liquid Argon calorimeter trigger firmware was rewritten in HLS, with a sparse switch matrix and resource-shared encoders, and is now used for physics.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>High-level synthesis in production: calorimeter firmware</h1>
+  <p class="meta"><span class="postmeta"><time>2023–25</time><span class="tag" data-t="t_fw">Firmware</span></span>Written from my LATOME HLS summary at the US AHEAD bootcamp (BNL, June 2025).</p>
+  <p class="doclinks"><a href="../docs/starting-with-hls.pdf">Starting with HLS slides (PDF)</a></p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">Ask a room of trigger engineers whether high-level synthesis can be used for a production trigger and you hear the same three objections. You will not manage to build a system that complex in HLS. The area and latency will be much larger than in RTL. HLS is fine for prototypes, not for production. Between 2023 and 2025 we rewrote part of the firmware of the ATLAS Liquid Argon calorimeter trigger in HLS, and it is now the version used for physics data taking. This post is about how that went.</p>
+
+<h2>The detector and the signal</h2>
+<p>The Liquid Argon (LAr) calorimeter measures the energy of electrons, photons and jets. It is a sampling calorimeter: layers of lead, copper or tungsten absorb the particles and start a shower, and the liquid argon between them is ionised by it. A high voltage across each argon gap turns the ionisation into a current. The signal is a triangular pulse, which the front-end electronics amplify, shape and digitise. There are about 180,000 cells, arranged in up to four layers in depth, covering the detector out to |η| &lt; 4.9.</p>
+<figure><img src="../img/blog-latome-04.jpg" alt="Slide describing the ATLAS Liquid Argon calorimeter with a cutaway drawing of the detector and a sketch of its four layers in depth" width="1600" height="920" loading="lazy"><figcaption>The LAr calorimeter: segments, layers and materials (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+<p>For the trigger, the cells used to be summed into 5,400 trigger towers of 0.1 × 0.1 in η and φ, with all layers added together. The Phase-I upgrade, completed for Run 3, introduced 34,000 super cells, ten times more granular, with the layers kept separate so that the shape of a shower is visible to the first-level trigger. They are digitised on the detector and sent out over optical links.</p>
+<figure><img src="../img/blog-latome-05.jpg" alt="Slide showing the triangular ionisation pulse of a LAr cell and its shaped, bipolar version, with the energy reconstruction formula based on optimal filter coefficients" width="1600" height="849" loading="lazy"><figcaption>The LAr signal and how energy is computed from it (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+
+<h2>The board and the firmware</h2>
+<p>Off the detector, 116 LATOME mezzanine cards, each built around the largest Intel Arria 10 FPGA, receive the super cell data. Each card deserialises, decodes and aligns its inputs, reconstructs the transverse energy of every super cell and identifies its bunch crossing, then compresses, encodes and serialises the results towards the three feature extractors of the calorimeter trigger, eFEX, jFEX and gFEX. It also buffers readout data for the events that the trigger accepts.</p>
+<figure><img src="../img/blog-latome-06.jpg" alt="Photos and descriptions of the LAr Carrier board, rear transition module, IPMC and LATOME mezzanine card" width="1600" height="810" loading="lazy"><figcaption>The off-detector electronics of the Phase-I upgrade: LArC carrier, RTM, IPMC and the LATOME mezzanine (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+<p>The firmware is hard for four reasons at once. It is large and congested: a lot of data enters a single FPGA. It has many clock domains: inputs at 5.12 Gb/s, outputs at 9.6 and 11.2 Gb/s. All inputs have to be aligned to one clock with a deterministic phase before any processing. And it has a latency allocation of 400 ns, set by the size of the memory buffers on the detector. The first version went into the experiment in 2021, was improved over the following years and became the default trigger for physics in 2024.</p>
+<figure><img src="../img/blog-latome-07.jpg" alt="Slide listing the firmware requirements, with an FPGA floorplan showing high congestion, and the history from the first firmware in 2021 to the consolidated version in 2024" width="1600" height="872" loading="lazy"><figcaption>Why this firmware is difficult: area, congestion, clock domains, deterministic phase and a 400 ns budget (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+
+<h2>Why HLS, and where</h2>
+<p>In RTL the engineer decides where every pipeline register goes. In a deep datapath that is both the source of control and a source of trouble: stages end up unbalanced, and a change of requirement means moving registers by hand. In HLS the engineer describes the computation and a latency target, and the tool schedules the operations into stages. That makes it much easier to keep stages balanced, and to explore several pipelinings of the same code.</p>
+<figure><img src="../img/blog-latome-09.jpg" alt="Diagram comparing RTL, where the designer places pipeline registers, with HLS, where C++ is scheduled into balanced stages at different latencies and frequencies" width="1600" height="901" loading="lazy"><figcaption>RTL and HLS: the same datapath, with pipelining written by hand or scheduled by the tool (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+<p>We did not rewrite everything. We picked two blocks where RTL was hurting most: the remapping of super cell data before it is summed, and the encoders at the outputs.</p>
+
+<h2>Remapping with a sparse switch matrix</h2>
+<p>Super cell data arrive in the order of the fibres and the channels of the front-end boards. The summing stages need them in the order of the detector geometry, and every output link has its own format. In the RTL version this reordering was done in three stages, input reordering, a multiplexing stage and a resynchronisation, with a change of clock from 320 MHz to 240 MHz on the way. Each stage was hand-written and tied to the others.</p>
+<figure><img src="../img/blog-latome-10.jpg" alt="Three colourful tables of data positions connected by arrows labelled ISTAGE reordering, remap mux and remap resync" width="1600" height="903" loading="lazy"><figcaption>The RTL remapping: three hand-written stages with a change of clock domain (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+<p>Conceptually, all three stages together are one thing: a switch matrix that connects every input position to every output position it is needed at. A full switch matrix is expensive, because it connects everything to everything. But in our case most of the connections are never used: each output needs a small number of specific inputs. Written as a sparse switch matrix in C++, with the connection table as a constant, the whole remapping becomes a few lines of code and the synthesis tool removes every connection that is not used.</p>
+<figure><img src="../img/blog-latome-11.jpg" alt="Diagram of a full switch matrix with every input connected to every output, next to the sparse pattern of connections actually needed" width="1600" height="833" loading="lazy"><figcaption>A full switch matrix, and the few connections the LATOME remapping really uses (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+<p>We used Siemens Catapult. Its loop is fast: simulate the C++, change the function, get estimates of latency, area and maximum frequency in minutes, then generate RTL and characterise it in Intel Quartus. The sparse switch matrix came out at about 6% of the logic of the FPGA and about 310 MHz. Because the connection table is data, a change of mapping is a change of a table, not of the design.</p>
+<figure><img src="../img/blog-latome-13.jpg" alt="Workflow diagram from C++ in Eclipse through Siemens Catapult to Quartus, with callouts for quick simulation, RTL characterisation, about 6% of ALMs and about 310 MHz Fmax" width="1600" height="872" loading="lazy"><figcaption>The HLS loop for the sparse switch matrix: C++, Catapult, Quartus, and back (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+
+<h2>Output encoders, and one parameter</h2>
+<p>The other block is the encoder that packs energies into the compact format of each output link. It is the block that is repeated most: the eFEX outputs alone need 320 of them. Implementing it as reconfigurable look-up memories would have taken all the memory of the FPGA. Since the encoding changes rarely, we let it be fixed logic and let the synthesis tool minimise it, the same way a designer would with a Karnaugh map, only for thousands of terms. The first version took prohibitively long to synthesise. Several iterations with Siemens support fixed that.</p>
+<p>With the code working, we did something that would have been a project of its own in RTL: we changed one parameter, the unroll factor, and let the tool share hardware between encoders. Fully parallel, 320 encoders take 1 cycle, 3.57 ns, and about 25,600 ALMs, 6% of the device. Sharing each encoder between five inputs takes 6 cycles, 21.4 ns, and about 8,700 ALMs, 2%. That is a 66% reduction in logic for about 18 ns of extra latency, with no change to the code, late in the project.</p>
+<figure><img src="../img/blog-latome-16.jpg" alt="Table of unroll factor, throughput, latency in cycles and nanoseconds, logic area and Fmax for 320 encoders, with the row for an unroll of 64 highlighted" width="1600" height="825" loading="lazy"><figcaption>Resource sharing for the 320 eFEX encoders: one parameter, a 66% saving in logic for about 18 ns of latency (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+
+<h2>Testing</h2>
+<p>A test bench that reads stimulus files from disk spends most of its time reading files. We wrote the test benches to generate every input and compute every expected output in memory, for 100,000 bunch crossings. Catapult can run the same test bench against the C++ and against the generated RTL. For a single encoder, the C++ simulation took under a second and the RTL simulation 14 seconds. For all 320, 39 seconds against 1,814, almost fifty times faster. That is what makes it practical to test every change.</p>
+<figure><img src="../img/blog-latome-17.jpg" alt="Slide on on-the-fly simulation with a table comparing C++ and RTL simulation times for 1 and 320 encoders" width="1600" height="920" loading="lazy"><figcaption>The same test bench for C++ and RTL. The C++ runs about fifty times faster (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+<p>After simulation came the usual chain: tests with recorded detector data, firmware in a test partition, and finally firmware in ATLAS with collisions.</p>
+
+<h2>In ATLAS</h2>
+<p>The measure that matters for a trigger is its efficiency: for a given energy threshold, the fraction of real objects above it that the trigger keeps. The plots below compare the RTL version 5 and the HLS version 6 of the firmware on 2025 collision data, for two jet triggers. The turn-on curves lie on top of each other.</p>
+<figure><img src="../img/blog-latome-19.jpg" alt="Two trigger efficiency turn-on curves from 2025 ATLAS data comparing firmware versions 5 and 6, with the points overlapping and ratios close to one" width="1600" height="847" loading="lazy"><figcaption>Trigger efficiency with the RTL firmware (v5) and the HLS firmware (v6) on 2025 data: equivalent performance (LATOME HLS summary slides, 2025).</figcaption></figure>
+
+
+<h2>The objections, again</h2>
+<p>The system was built, it is in production, and it is used for physics. Area and latency are comparable to the RTL. And design cycles are faster in both synthesis and simulation, the code is easier to reuse, and it depends less on one particular FPGA.</p>
+<p>That does not make HLS the answer to everything. The blocks we chose are regular, wide and data-driven, which is where HLS is strongest, and the rest of the firmware stayed in RTL. But the claim that HLS cannot be used for a low-latency trigger is now harder to make. I reached the same conclusion on a smaller scale in my PhD, with <a href="sorting-networks.html">a sorting network written both ways</a>. If you want to start, <a href="starting-with-hls.html">Starting with HLS</a> walks through the basics.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="timing-distribution.html"><small>Previous post</small>Timing distribution for the High-Luminosity LHC</a><a class="next" href="inter-fpga-links.html"><small>Next post</small>Talking between FPGAs on the same board</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>

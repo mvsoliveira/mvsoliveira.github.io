@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Making transceiver latency deterministic</title>
+<meta name="description" content="Measuring and reducing the latency and latency uncertainty of FPGA multi-gigabit transceivers: from 67 ns to 50 ns, with a fixed transmitter latency.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>Making transceiver latency deterministic</h1>
+  <p class="meta"><span class="postmeta"><time>2017</time><span class="tag" data-t="t_fw">Firmware</span></span>Written from chapter 4 of my PhD thesis (EPFL, 2021).</p>
+  <p class="doclinks"><a href="../docs/phd-thesis.pdf">PhD thesis (PDF)</a><a href="../docs/phd-private-defense.pdf">Technical defence slides (PDF)</a><a href="../theses/phd.html">Thesis summary</a></p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">A multi-gigabit transceiver in an FPGA is a long pipeline. In its default configuration it is also a pipeline whose length changes a little every time it is reset. Most applications never notice. A first-level trigger does, because it compares data from hundreds of links that must belong to the same bunch crossing. This post is about the measurements I made to shorten that pipeline and to pin its length down, and about the part I decided to leave alone.</p>
+
+<h2>Why the default is not good enough</h2>
+<p>The first-level trigger of ATLAS has 2.5 µs to decide, and the muon interface I worked on (MUCTPI) has a budget of 200 ns inside that. Latency has to be low because the detector front-end can only store the data for a short time. It has to be fixed because the trigger is pipelined: each stage assumes that its inputs arrive in a known clock cycle. If one link comes up a cycle late after a reset, the trigger combines data from different bunch crossings: a wrong event can be accepted and the right one rejected.</p>
+<p>Transceivers are designed for a wider market, where a deterministic latency is rarely required. The standard configuration puts buffers at the clock domain crossings inside the transceiver. They make the device easy to use, and they cost latency and add uncertainty.</p>
+
+<h2>The link</h2>
+<p>The muon sector logic sends its data to the MUCTPI at 6.4 Gb/s with 8b10b encoding. The user logic writes 16 bits on each edge of a 320 MHz clock, the encoder turns them into 20, and the serialiser sends them out. The transmitter's reference clock is derived from the LHC bunch clock, multiplied by eight in a jitter cleaner.</p>
+<p>No clock travels with the data. The receiver recovers one from the bit stream, deserialises, finds the 20-bit word boundary by looking for the 8b10b comma symbol, decodes, and hands 16-bit words to the user logic on the recovered clock, divided down by the same ratio.</p>
+
+<h2>A test system that cancels its own delays</h2>
+<p>These measurements were part of a wider prototyping effort, the MUCTPI demonstrator: an FPGA evaluation card with a custom FMC mezzanine that carried optical modules and clocking. It was built to show that FPGA transceivers and parallel optical modules could do the job, to measure latency, to receive the optical timing signals of the experiment, to compare two jitter cleaner options, and to let firmware development and integration tests start long before the real board existed.</p>
+
+<figure><img src="../img/blog-latency-demonstrator.jpg" alt="Photo of an FPGA evaluation board with a custom mezzanine card carrying optical modules and fibres" width="1600" height="805" loading="lazy"><figcaption>The MUCTPI demonstrator: an evaluation card plus a custom FMC (PhD technical defence slides).</figcaption></figure>
+
+
+
+<p>I built the measurement from two evaluation kits: a Xilinx KC705 as transmitter (GTX transceiver) and a VCU108 as receiver (GTH and GTY). Both took their reference from the same Silicon Labs Si5338 clock generator board. The transmitter sent a periodic sequence, and each side raised a pulse whenever the sequence restarted. The two pulses went to a 1 GHz oscilloscope over cables of equal length.</p>
+<p>The time between the pulses is the transceiver-to-transceiver latency. The time needed to produce the pulse and the cable delay are the same on both sides and drop out. For the uncertainty, the scope was triggered on the transmitter pulse while the transceivers were reset every three seconds, and thousands of waveforms were accumulated. The width of the smear on the receiver pulse is the latency uncertainty.</p>
+
+<figure><img src="../img/blog-latency-results.jpg" alt="Diagram of the latency test system next to two oscilloscope captures, one labelled non-deterministic transmitter latency and the other deterministic transmitter latency" width="1600" height="805" loading="lazy"><figcaption>Left: the test system. Right: the two transmitter clocking options on the oscilloscope. With the programmable divider the reference clock moves relative to the transmitter flag; routed directly, it stands still (PhD technical defence slides).</figcaption></figure>
+
+<figure><img src="../img/blog-latency-setup.png" alt="Block diagram: TX logic, GTX transmitter, 10 m of fibre at 6.4 Gb/s, GTH receiver, RX logic; a shared jitter cleaner feeds both sides and an oscilloscope compares a trigger pulse from each side" width="1400" height="842" loading="lazy"><figcaption>The latency test system: two evaluation kits, one shared reference clock, and a pulse from each side to the oscilloscope (PhD thesis, Fig. 4.2).</figcaption></figure>
+
+<h2>Step one: take the buffers out</h2>
+<p>The two buffers in question are the TX phase-adjust FIFO and the RX elastic buffer. Both sit between the clock of the serialiser or deserialiser and the clock of the user interface. Bypassing both brought the data-path latency from about 67 ns down to about 50 ns.</p>
+<p>It also halved the uncertainty. With the buffers in, the receiver pulse moved over two user-clock periods, 6.25 ns, from one reset to the next. Without them it moved over one, 3.125 ns.</p>
+
+<p>The data path of a Xilinx UltraScale transceiver is drawn in the user guide as a long chain of blocks: the PCS with encoder, gearbox, phase-adjust FIFO and PRBS generator on the transmit side, and comma detection, decoder, elastic buffer and PRBS checker on the receive side, followed by the analogue PMA. Most blocks can be bypassed or configured. The highlighted path below is the one used on the trigger links, with the two buffers taken out.</p>
+
+<figure><img src="../img/blog-latency-datapath.jpg" alt="Block diagrams of the transmitter and receiver data paths of an UltraScale transceiver with the chosen low-latency path highlighted in yellow" width="1600" height="805" loading="lazy"><figcaption>The optimised data path through the transmitter (top) and receiver (bottom), buffers bypassed (PhD technical defence slides).</figcaption></figure>
+<p>The price is that the transceiver now has to align the two clock domains itself, with its delay aligner circuit, and that the user must pay attention to how the clocks are routed. That is the second step.</p>
+
+<h2>Step two: the transmitter clock</h2>
+<p>With the buffers bypassed, I compared two ways of producing the transmitter's user clock. In the first, it comes from a programmable divider inside the transmitter. In the second, the reference clock is routed directly to the user interface, with no divider on the way.</p>
+<p>On the scope the two looked the same at first: 3.125 ns of spread on the receiver pulse in both cases. The difference appeared when I added the reference clock to the display. With the direct route, the reference clock stood still with respect to the transmitter pulse. With the divider, it did not. The divider comes out of reset in a state that has no fixed relation to the reference clock, so the transmitter's own latency changes from one reset to the next.</p>
+<p>The direct route is possible when the reference clock has the same frequency as the user clock, here 320 MHz. With that choice the transmitter latency is fixed. The remaining 3.125 ns comes entirely from the receiver.</p>
+
+<figure><img src="../img/blog-latency-clock-fabric.jpg" alt="Clocking diagrams of the transceiver with the selected clock routes highlighted in yellow" width="1600" height="805" loading="lazy"><figcaption>The optimised clock fabric: the transmitter user clock taken directly from the reference clock where possible (PhD technical defence slides).</figcaption></figure>
+
+<h2>Step three: the receiver, and where I stopped</h2>
+<p>The receiver cannot use the same remedy. Its user clock has to come from the recovered clock, because the phase between the recovered clock and the local reference is unknown. On the way it passes through dividers, and those dividers start in an arbitrary phase with respect to the incoming word. The transceiver then finds the word boundary by shifting the data to fit the clock it happens to have. Each reset can therefore give a different latency, within one user-clock period.</p>
+<p>There is a known way around this: do the word alignment outside the transceiver and shift the phase of the recovered clock, not the data, until the words line up. It requires the comma alignment to be put into a manual mode that the vendor does not support, which means modifying the vendor's transceiver IP.</p>
+<p>I decided against it. An uncertainty of 3.125 ns is 12.5% of the 25 ns bunch-crossing period. The block that moves the data from the recovered clock to the system clock has to exist anyway, and it can be designed to absorb a variation of that size. That is what was done, and <a href="link-synchronisation.html">the post on link synchronisation</a> describes how.</p>
+
+<h2>Results</h2>
+<p>The optimised configuration gives a transceiver-to-transceiver latency of about 50 ns, a quarter of the MUCTPI budget, with a fixed transmitter latency and a receiver uncertainty of 3.125 ns. The MUCTPI uses these settings on its trigger path. The teams building the barrel and endcap sector logic adopted the transmitter data-path and clock settings for their boards, which is where the transmitters of these links are.</p>
+<p>So the title is half true. The transmitter became deterministic. The receiver was left with one clock period of uncertainty on purpose, and the determinism of the complete transfer is restored one block further down.</p>
+
+<h2>If you are doing this yourself</h2>
+<p>Three things I would carry over to any similar measurement. Measure with a set-up in which the instrument's own delays cancel, so that the number on the scope is the number you want. Put the reference clock on the scope next to the data: two configurations with the same spread turned out to be different once the clock was visible. And decide where in the system an uncertainty is cheapest to remove. Here the place was not the transceiver.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="link-synchronisation.html"><small>Previous post</small>Synchronising more than 100 serial links in one FPGA</a><a class="next" href="pcbpy.html"><small>Next post</small>Checking PCB schematics with a script: PCBpy</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>

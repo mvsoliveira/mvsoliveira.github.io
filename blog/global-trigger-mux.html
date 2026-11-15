@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecting the Global Trigger multiplexer</title>
+<meta name="description" content="The firmware architecture of the ATLAS Global Trigger multiplexer: FIFOs, a full-mesh time-multiplexed switch, die-crossing limits in multi-die FPGAs, and generated registers.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>Architecting the Global Trigger multiplexer</h1>
+  <p class="meta"><span class="postmeta"><time>2025–26</time><span class="tag" data-t="t_sys">Systems</span></span>Written from the Global Multiplexer overview I presented for the team (June 2026).</p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">For the High-Luminosity LHC, the first-level trigger of ATLAS gets a new stage: the Global Trigger. Its idea is simple to state and hard to build. Instead of each subsystem deciding on its own part of the detector, all the trigger data of one bunch crossing are brought to a single processor, which can then reconstruct and analyse the whole event. The piece that makes that possible is the multiplexer. From 2025 to 2026 I was the architect of its firmware, and this post describes the design.</p>
+
+<h2>What the multiplexer does</h2>
+<p>About 50 Tb/s of trigger data from the calorimeters and the muon system arrive at the Global Trigger, 40 million bunch crossings per second. No single processor can receive that every 25 ns. So the processing is time-multiplexed: a set of identical processors, called GEPs, each take whole events in turn. GEP 0 gets bunch crossing 0, GEP 1 gets bunch crossing 1, and so on, and each has many bunch crossings' worth of time to work on its event.</p>
+<p>The multiplexers sit in front of them. Each multiplexer FPGA receives data from one subsystem on many input links, every bunch crossing, and has to send all the data of each bunch crossing out on the one output link that leads to the GEP in charge of it. Every input talks to every output, in a fixed rotation. The hardware is the Global Common Module (GCM), a board with AMD Versal Premium devices, and the multiplexer firmware comes in three versions, for links at 9.6, 11.2 and 25 Gb/s.</p>
+<figure><img src="../img/blog-mux-06.jpg" alt="Block diagram of the Global Trigger multiplexer firmware: RX and TX interfaces with testing infrastructure, the MUX core, the AXI register interface, local clock infrastructure and TTC reception" width="1600" height="789" loading="lazy"><figcaption>The firmware of the multiplexer and its main blocks (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+
+<h2>Working principles</h2>
+<p>Before the architecture, the team agreed on a few principles, and they shaped everything that followed. Push complexity from firmware to software, because firmware is slow to change and software is not. Build testing in to stay: pattern generators, checkers and error injection are part of the production firmware, not a separate test build. Test continuously, with automated procedures that run firmware and software together. Plan the work so that as many tasks as possible can go ahead in parallel, without waiting for each other or for the systems upstream and downstream. Keep the overhead low. And add complexity in small steps, so that each new problem can be isolated.</p>
+<figure><img src="../img/blog-mux-04.jpg" alt="Slide listing the firmware implementation working principles: pushing complexity to software, testing made to stay, continuous testing, minimum interdependence, minimum overhead and incremental steps" width="1600" height="781" loading="lazy"><figcaption>The working principles of the multiplexer firmware (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+<p>The third principle has a practical consequence. The multiplexer was developed and tested long before the boards that feed it and the GEPs that receive from it were ready, by emulating both. Pattern generators on spare boards stood in for the subsystems, and checkers stood in for the GEPs.</p>
+
+<h2>The core</h2>
+<p>The architecture has three stages. In the input stage, logic specific to each subsystem receives the data, checks it for CRC errors and writes it into an input FIFO, in the clock domain of its link. In the multiplexing stage, one multiplexer per output, all in a single clock domain, reads from the input FIFOs and writes to its output FIFO. In the output stage, each output FIFO feeds the link protocol towards a GEP, which adds a CRC. Inputs can be masked without disturbing the rotation, so a broken link does not stop the others.</p>
+<figure><img src="../img/blog-mux-13.jpg" alt="Architecture diagram of the MUX core with input stages in yellow, multiplexers in blue, output stages in green, and notes on masking and asymmetric FIFOs" width="1600" height="907" loading="lazy"><figcaption>The three stages of the multiplexer core (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+<p>The FIFOs do several jobs at once. They cross clock domains. They change data width, because the links and the core do not use the same word size. They absorb the different arrival phases of the inputs: each input FIFO only starts to be written when its link's control character for the start of the frame arrives, so data of the same bunch crossing line up. And they absorb backpressure from the output links.</p>
+<p>The reading order is the subtle part. The figure below shows a reduced example with five inputs and five outputs. Each colour is a GEP. Data from every input for a given bunch crossing must go to the same output, one word at a time, and the reading order has to respect that each output FIFO can only take one word per clock cycle. We keep the input FIFOs almost empty but never empty, like walking along a wall leaning against it, which keeps the latency low.</p>
+<figure><img src="../img/blog-mux-14.jpg" alt="Table of input FIFO contents over time for five inputs and five GEP outputs, coloured by destination GEP, with a photo of a person leaning against a rock wall and a FIFO fill-level sketch" width="1600" height="766" loading="lazy"><figcaption>Aggregation and multiplexing in a reduced example: five inputs, five outputs (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+<p>The FIFOs had to be custom for the 10 Gb/s version. The 8b10b links deliver words at a rate that requires a FIFO with a 1-to-7 width ratio, and the vendor FIFOs only support powers of two. A 1-to-8 FIFO does not work either, because the link never leaves a gap to pad the eighth word. The custom FIFO uses seven narrow FIFOs written in turn by a shift register and read together.</p>
+
+<h2>The silicon interposer problem</h2>
+<p>The first implementation failed for a reason that has nothing to do with logic. Large Versal devices are built from several dies, called super logic regions (SLRs), placed side by side on a silicon interposer. Signals that cross from one die to another use a limited number of dedicated wires. With 48 inputs and 48 outputs and 512 bits per bunch crossing on each, a full-mesh multiplexer needs about 24,500 crossings, and the device has about 18,800.</p>
+<figure><img src="../img/blog-mux-16.jpg" alt="Slide on initial implementation results with an illustration of a multi-die FPGA on a silicon interposer and the numbers of required and available die crossings" width="1600" height="821" loading="lazy"><figcaption>Too many wires for the interposer: about 24,500 needed, about 18,800 available (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+<p>How many crossings are really needed depends on where the multiplexers are placed, and that is not written in the code: the implementation tool replicates and places logic as it sees fit. The slides work through several topologies. Multiplexing inside each die and combining the intermediate results in one place needs twelve crossings in the example. Bringing the inputs of neighbouring dies together first and placing each multiplexer next to its output needs four.</p>
+<figure><img src="../img/blog-mux-17.jpg" alt="Diagram of four SLRs with inputs multiplexed inside each SLR and combined in a single multiplexer, with twelve crossings counted" width="1600" height="724" loading="lazy"><figcaption>One placement of the multiplexers: twelve die crossings per bit in this example (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+<p>Whatever the topology, the lower bound depends on three things: the number of inputs and outputs, the number of dies, and the width of the data that is switched at once. The first two are fixed by the board. The third is not.</p>
+<figure><img src="../img/blog-mux-20.jpg" alt="Diagrams comparing different multiplexer topologies across SLRs and the resulting number of connections" width="1600" height="765" loading="lazy"><figcaption>The number of crossings scales with inputs, outputs, dies and data width (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+
+<h2>Time-division multiplexing, inside the multiplexer</h2>
+<p>So we switched the data of each bunch crossing in pieces. With a factor of two, each time slot is divided in two, and the 512 bits of a bunch crossing go through the switch 256 bits at a time. The number of die crossings halves, to about 12,250, well within the limit. The architecture is otherwise unchanged: it is time-division multiplexing applied inside a time-division multiplexer.</p>
+<figure><img src="../img/blog-mux-21.jpg" alt="Table showing how each input word is split into two halves A and B that are switched in consecutive time slots to the coloured GEP outputs" width="1600" height="766" loading="lazy"><figcaption>Time-division multiplexing with a factor of two: each bunch crossing is switched in two halves (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+<p>With it, the full mesh of 48 inputs and 48 outputs fits in a VP1802 with four dies, with low logic utilisation and timing closed in the faster speed grade without much optimisation effort. On the next board version, which places most of the high-speed I/O in one die, the design closes timing even without it, and the factor of two still improves timing.</p>
+<figure><img src="../img/blog-mux-23.jpg" alt="Table of implementation results for the VP1802 device in several speed grades with LUT, FF, BRAM, LUTRAM and SLL usage and timing slack" width="1600" height="755" loading="lazy"><figcaption>Implementation results with time-division multiplexing (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+
+<h2>Keeping everyone on the same bunch crossing</h2>
+<p>Each multiplexer has 49 outputs, so a given output sends bunch crossing 0, then 49, then 98, and so on, wrapping around the 3,564 bunch crossings of an LHC orbit. It takes 523 such rotations, about 640 µs, before the same output sends bunch crossing 0 again. All the multiplexers must start this cycle together, or the GEPs would receive pieces of different events. The plan is to use slow control together with the unique event identifier to start them all at once. Inputs can also fail during a run, so any input can be masked at the multiplexing stage, which runs on a clock that is always present, and an input frame with a CRC error is replaced by zeros or another predefined pattern.</p>
+<figure><img src="../img/blog-mux-29.jpg" alt="Slide on system considerations and error handling, with the multiplexer output sequence and turnaround cycle" width="1600" height="640" loading="lazy"><figcaption>The turnaround cycle and error handling (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+
+<h2>Registers from a wish list</h2>
+<p>Pushing complexity to software means a lot of information has to travel through a narrow pipe: configuration, masks, filter coefficients, counters, status. Every register needs an address, a width and a mask, and firmware and software have to agree on all of them, forever. Wishlist is a tool I wrote for this. You describe what you want to exchange in a YAML file, and it allocates the addresses, packs wide values into several words, replicates structures, and generates the VHDL package and address decoder, the software register description and documentation from templates. Extra attributes in the YAML are carried through, so other tools can use the same file.</p>
+<figure><img src="../img/blog-mux-31.jpg" alt="Diagram showing user software and user firmware exchanging information through Wishlist-generated software and firmware layers over a narrow AXI pipe" width="1600" height="920" loading="lazy"><figcaption>Wishlist sits between software and firmware, on both sides of the narrow pipe (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+<p>The generated code tests itself. Random values are written to every register, read back and compared, many times, in a different order each time, so that two registers sharing an address would be caught. These tests run in simulation as part of continuous integration.</p>
+<figure><img src="../img/blog-mux-33.jpg" alt="Flow diagram of the self-testing routines for generated VHDL and register descriptions, running in simulation with Cocotb and Questa in a CI pipeline" width="1600" height="895" loading="lazy"><figcaption>Self-tests of the generated firmware and software, run in continuous integration (Global Multiplexer overview slides, June 2026).</figcaption></figure>
+
+
+<h2>On the bench</h2>
+<p>In the lab at BNL, three GCM boards demonstrated the whole chain: one generated 8b10b data at 11.2 Gb/s as a stand-in for a subsystem, one aggregated and multiplexed it, and one received the multiplexed output over 25 Gb/s links using Core1990, a protocol based on Interlaken and checked it. Links from an Intel Agilex evaluation kit used by the calorimeter group ran overnight with no errors, a bit error rate below 6.7 × 10<sup>−16</sup>, and attenuation tests showed errors only after about 6 dB of extra optical loss.</p>
+<p>The new transceivers needed work of their own. The ADC-based transceivers of the Versal devices adapt their equalisation automatically, and the adaptation does not behave well with the periodic patterns of 8b10b test data. Together with colleagues at AMD and AVNET we found a scheme that scrambles the data before 8b10b encoding, and we wrote our own word alignment and 8b10b encoding and decoding, because these transceivers do not support 8b10b out of the box.</p>
+
+<h2>What I would take to the next project</h2>
+<p>The interposer limit is the lesson that generalises. In a multi-die FPGA the number of wires between dies is a resource like logic or memory, and a full-mesh design can run out of it long before it runs out of anything else. Time-division multiplexing, a technique usually applied between boards, works just as well inside one chip to trade wires for clock cycles. The other lesson is the one from the working principles: tests that stay in the production firmware, and a register map that is generated rather than written, keep paying back long after they are built.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="starting-with-hls.html"><small>Previous post</small>Starting with HLS: from a logic gate to a FIR filter</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>

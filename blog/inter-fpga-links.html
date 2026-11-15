@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Talking between FPGAs on the same board</title>
+<meta name="description" content="240 LVDS links at 1.12 Gb/s between the three processing FPGAs of the ATLAS gFEX, with automatic sampling-phase search, word alignment and in-system margin scans.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/site.css">
+</head>
+<body data-depth="plain">
+<header class="nav">
+  <div class="wrap">
+    <a class="me" href="../index.html">Marcos Oliveira</a>
+    <ul>
+      <li><a href="../index.html#about" data-k="nav_about">About</a></li>
+      <li><a href="../index.html#academic" data-k="nav_academic">Academic</a></li>
+      <li><a href="../index.html#blog" data-k="nav_blog">Blog</a></li>
+      <li><a href="../index.html#leisure" data-k="nav_leisure">Leisure</a></li>
+      <li><a href="#contact" data-k="nav_contact">Contact</a></li>
+    </ul>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true" title="English">EN</button>
+      <button type="button" data-lang="pt" aria-pressed="false" title="Português">PT</button>
+      <button type="button" data-lang="fr" aria-pressed="false" title="Français">FR</button>
+    </div>
+  </div>
+</header>
+<main id="top">
+<article class="longform">
+<header class="wrap pagehead">
+  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <h1>Talking between FPGAs on the same board</h1>
+  <p class="meta"><span class="postmeta"><time>2024</time><span class="tag" data-t="t_fw">Firmware</span></span>Written from my gFEX inter-FPGA communication talks (2024).</p>
+  <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
+</header>
+
+<div class="wrap prose">
+<div class="post">
+<p class="lead">The gFEX board of the ATLAS calorimeter trigger has three large processing FPGAs that need to exchange data every bunch crossing. Between them there are 240 differential pairs on the board, and in 2024 I designed the firmware and software that run each of them at 1.12 Gb/s, find the right sampling point on every link by themselves, and keep measuring the margin while real data flows. This post is about how, and about the simulation that made it work on the first try in hardware.</p>
+
+<h2>The board</h2>
+<p>gFEX, the global feature extractor, provides the large-radius jet triggers, missing transverse energy, pile-up estimates and other global quantities to the first-level trigger. It is a single ATCA blade with a 30-layer printed circuit board and 504 high-speed serial links. Three Virtex UltraScale+ FPGAs, called A, B and C, process the calorimeter data, which arrive on 300 optical fibres at 11.2 Gb/s. A fourth device, a Zynq UltraScale+ MPSoC called Z, controls the board, distributes timing and runs the software.</p>
+<figure><img src="../img/blog-gfex-04.jpg" alt="Slide with a photo of the gFEX board showing its four FPGAs and a summary of its links and functions" width="1600" height="901" loading="lazy"><figcaption>The gFEX board: three processing FPGAs, A, B and C, and the Zynq Z that controls them (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+<p>Beyond the multi-gigabit transceivers, the processing FPGAs are wired to each other with ordinary differential pairs: 96 between A and B, and 144 between each of them and C. Some pairs are reserved for clocks. In total there are 240 data links between the three FPGAs.</p>
+<figure><img src="../img/blog-gfex-05.jpg" alt="Slide listing the number of differential lines between FPGAs A, B and C, with the board photo annotated with arrows between them" width="1600" height="815" loading="lazy"><figcaption>240 differential pairs between the three processing FPGAs (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+
+<h2>Three problems</h2>
+<p>The first problem is speed. Each pair has to carry 1.12 Gb/s, four bits per period of a 280 MHz clock. The FPGA I/O blocks can do that with their serialisers and deserialisers (OSERDES and ISERDES) in a quad-data-rate mode, sampling four times per clock period.</p>
+<p>The second is where to sample. A bit lasts 0.89 ns. The delay from one FPGA to another depends on the length of each trace on the board and on the clock network inside each FPGA, so it is different for every link and not known in advance. The receiver has to find, for each link, the part of the bit period where the data is stable, and sample in the middle of it. I had solved the same problem about ten years earlier, for the <a href="muon-topology.html">muon trigger outputs of my master's thesis</a>, and used the same idea: a second sampler that is delayed slightly with respect to the first, and a comparison between the two. When they disagree, there was a transition between them. Scanning the delay maps out where the data changes.</p>
+<figure><img src="../img/blog-gfex-08.jpg" alt="Slide showing a transition detector circuit, the DDR input block with master and slave delay lines and ISERDES, and a timing diagram of how transitions are detected" width="1600" height="920" loading="lazy"><figcaption>Finding the sampling point: two samplers, one slightly delayed, and a comparison between them. The same principle as in my master's work (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+<p>The third is word alignment. The serialiser sends four bits at a time and the deserialiser hands four bits at a time to the logic, but nothing guarantees that the receiver's group of four is the same group the transmitter sent. Depending on the phase between data and clock, the received word can be shifted by one, two or three bits. The obvious fix is to look at two consecutive words, eight bits, and pick the right four. That works for every phase, but more than one choice gives correct data, and they differ in latency. Looking at seven bits instead of eight gives exactly one correct choice for every phase, and that choice always takes the newest data, so the latency is the lowest possible and the same after every reset.</p>
+<figure><img src="../img/blog-gfex-12.jpg" alt="Slide with tables of transmitted and received bit sequences for every clock-to-data offset and rotation option, showing that with 7-bit boundaries exactly one rotation option gives aligned data" width="1600" height="920" loading="lazy"><figcaption>Word alignment with 7-bit boundaries: always exactly one correct rotation, always the lowest latency (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+
+<h2>Two IP cores and a lot of registers</h2>
+<p>The design has two blocks. The transmitter core sends either user data, a counter or a PRBS-7 pseudo-random pattern, and can inject bit errors on demand. The receiver core has two complete sampling paths per link, a primary and a secondary, each with its own programmable delay line of up to 512 taps, its own deserialiser and its own rotation stage. The primary path carries the data. The secondary one can be moved freely, and four mismatch counters, one per sample position, count how often it disagrees with the primary. A PRBS checker counts real bit errors.</p>
+<figure><img src="../img/blog-gfex-15.jpg" alt="Detailed block diagram of the receiver IP core with primary and secondary IDELAYE3 and ISERDESE3 paths, rotation stages, PRBS checker and four mismatch accumulators connected to AXI registers" width="1600" height="809" loading="lazy"><figcaption>The receiver core: a primary and a secondary sampling path, a PRBS checker and four mismatch counters, all exposed as registers (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+<p>Every control and every counter is an AXI register. That was deliberate. The firmware does not decide anything: it measures, and the software decides. Choosing the sampling point, the rotation and when to start and stop a measurement are all done in Python on the Zynq. A change of strategy is a change of software, which is quicker to make and to test than a new bitstream.</p>
+<figure><img src="../img/blog-gfex-16.jpg" alt="Diagram showing a transmitter core in one FPGA connected to a receiver core in another, and how the links between A, B and C are composed of these pairs" width="1600" height="830" loading="lazy"><figcaption>Each link is one transmitter core and one receiver core, in two different FPGAs (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+<p>The processing FPGAs have no processor of their own, so the software reaches them from the Zynq through the AXI Chip2Chip bridge over a multi-gigabit link. The register map of all four FPGAs is described in YAML with Wishlist, a tool I wrote to generate the VHDL address decoders and the software register tree from the same description, so that firmware and software cannot drift apart.</p>
+
+<h2>Disruptive and non-disruptive scans</h2>
+<p>The software can run two kinds of scan. In the disruptive one, both samplers sweep the whole delay range together, and the data is lost while they do. It is used once, to find the stable region and put the primary sampler in its centre. In the non-disruptive one, the primary sampler stays where it is and keeps receiving data, while the secondary one sweeps. The mismatch counters then draw the eye of the link while it is in use, without interrupting it.</p>
+<figure><img src="../img/blog-gfex-29.jpg" alt="Two timing diagrams comparing a disruptive phase scan, where both samplers move, with a non-disruptive one, where only the secondary sampler moves" width="1600" height="739" loading="lazy"><figcaption>Disruptive scan: both samplers move. Non-disruptive scan: only the secondary one does, while data keeps flowing (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+
+<h2>Simulating the whole board, software included</h2>
+<p>Before any of this went to hardware, it ran in a simulation of the whole board: all four FPGAs, the Chip2Chip bridges and the registers, driven by the same Python low-level software that runs on the Zynq. The test bench is written with Cocotb and runs in Siemens Questa. Each link between FPGAs is given a random delay in the simulation, and the software has to find it.</p>
+<figure><img src="../img/blog-gfex-30.jpg" alt="Heat maps of mismatch counts from the simulation, showing transitions at different taps for different quadrature phases, and the word alignment results" width="1600" height="883" loading="lazy"><figcaption>Phase and word-alignment scans in simulation, before any hardware (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+<p>The simulation did more than check the logic. It reproduced two effects that we later saw on the board: the transitions of two of the four sample phases appeared at a different tap from the other two, most likely because of how the clock network inside the FPGA treats rising and falling edges. Seeing that first in simulation meant that it was understood, not puzzling, when it showed up in the lab.</p>
+<p>The builds and tests run automatically. Every change goes through simulation in two configurations, synthesis, implementation, and tests on a board in the lab, and the results, reports and bitstreams are published on a generated static website.</p>
+
+<h2>Clocks</h2>
+<p>The FPGAs are made of several dies, called super logic regions (SLRs), and the links of each FPGA are spread over two of them. The serialisers need a 280 MHz and a 560 MHz clock with very little skew between them, under 200 ps. We tried three clock topologies. In the final one, a single input clock feeds a separate clock generator in each SLR, so that each serialiser gets its clocks from its own region while all clocks still share a common source. Placement constraints for all three FPGAs, whose links are spread differently over their banks, are generated by a script from the connectivity table, the same idea as <a href="pcbpy.html">PCBpy</a>.</p>
+<figure><img src="../img/blog-gfex-44.jpg" alt="Slide showing the clock topology and a screenshot of generated switch matrix configurations for routing clocks and control signals to each channel" width="1600" height="862" loading="lazy"><figcaption>The chosen clock topology, with a generated configuration that routes clocks and control signals to each channel (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+
+<h2>In hardware</h2>
+<p>Firmware and software were deployed on the board and worked at the first attempt. The scans in the lab looked like the scans in simulation, including the unateness effect. The stable region is wide. In the worst link, the unstable part covers 70 taps, 27% of the bit period. The bit period is about 260 taps, which gives an average tap of 3.43 ps, within the datasheet range.</p>
+<figure><img src="../img/blog-gfex-49.jpg" alt="Slide with heat maps of the phase scans in hardware, showing narrow red transition bands on a wide green stable region for each channel" width="1600" height="920" loading="lazy"><figcaption>Phase scans in hardware: narrow transition bands, wide stable regions (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+<p>Word alignment found exactly one correct rotation on every link, as designed. Then all four FPGAs were reset hundreds of times over eight hours, and the stable region did not move by a single tap.</p>
+<figure><img src="../img/blog-gfex-53.jpg" alt="Heat map of the phase scan repeated over many resets for six links, showing the transition positions staying fixed" width="1600" height="872" loading="lazy"><figcaption>The phase scan repeated over hundreds of resets: no change (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+<p>For the error rate, the primary samplers stayed at their optimal point while all 240 links carried PRBS-7 for three days. About 2.9 × 10<sup>14</sup> bits went through each link without a single error. That gives a bit error rate below 1.03 × 10<sup>−14</sup> per link with 95% confidence, fewer than one error per day, and below 4.3 × 10<sup>−17</sup> for the 240 links together.</p>
+<figure><img src="../img/blog-gfex-61.jpg" alt="Slide summarising the three-day non-disruptive PRBS test with log lines showing zero errors in each FPGA and the calculated BER limits" width="1600" height="793" loading="lazy"><figcaption>Three days, 240 links, no errors (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+<p>During the same run the non-disruptive scans measured the eye of every link without disturbing it.</p>
+<figure><img src="../img/blog-gfex-63.jpg" alt="Large heat map of the non-disruptive full-resolution scan for all links of one FPGA during data transfer" width="1600" height="892" loading="lazy"><figcaption>Non-disruptive scans of all links of one FPGA, measured while data was being transferred (gFEX inter-FPGA communication slides, 2024).</figcaption></figure>
+
+
+<h2>What made it work</h2>
+<p>Three choices. Putting the decisions in software made the firmware small and the procedure easy to change. Keeping the measurement hardware in the production firmware means the margin of every link can be checked at any time, not only once in the lab. And simulating the whole board with the real software meant the first hardware test was a confirmation, not a debugging session.</p>
+</div>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="hls-calorimeter.html"><small>Previous post</small>High-level synthesis in production: calorimeter firmware</a><a class="next" href="starting-with-hls.html"><small>Next post</small>Starting with HLS: from a logic gate to a FIR filter</a><a class="all" href="../index.html#blog">All posts</a></nav>
+</div>
+</article>
+
+</main>
+<footer class="contact" id="contact">
+  <div class="wrap">
+    <h2 data-k="ct_h">Get in touch</h2>
+    <form class="cform" id="cform">
+      <label><span data-k="f_name">Your name</span><input id="f-name" name="name" required autocomplete="name"></label>
+      <label><span data-k="f_email">Your email</span><input id="f-email" type="email" name="email" required autocomplete="email"></label>
+      <label class="full"><span data-k="f_msg">Message</span><textarea id="f-msg" name="message" required></textarea></label>
+      <input class="hp" id="f-web" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit" data-k="f_send">Send message</button>
+      <p class="fstatus" id="fstatus" role="status"></p>
+    </form>
+    <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
+    <ul class="links">
+      <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
+      <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
+      <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>
+      <li><a href="https://orcid.org/0000-0003-2285-478X">ORCID</a></li>
+      <li><a href="https://inspirehep.net/authors/1267586">INSPIRE</a></li>
+    </ul>
+    <p class="foot"><span data-k="ct_loc">English, Portuguese and French spoken.</span> © <span data-year>2026</span> Marcos Oliveira</p>
+  </div>
+</footer>
+<script>window.SITE={formEndpoint:"",formExtra:{}};</script>
+<script src="../js/common-strings.js"></script>
+<script src="../js/site.js"></script>
+</body>
+</html>
