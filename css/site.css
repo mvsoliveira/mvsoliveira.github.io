@@ -411,3 +411,7 @@ html[data-lang="en"] .langnote{display:none}
 .prose .pair.even{grid-template-columns:1fr 1fr;align-items:end}
 .prose figure.olivsmall{max-width:18rem}
 .prose figure.olivmid{max-width:28rem}
+.sg-ctl{grid-template-columns:1fr auto auto 1fr}
+.sg-ctl .sg-demo{padding-inline:20px}
+.sg-ctl .sg-demo[aria-pressed="true"]{background:#1E6B50;border-color:#E0A552}
+@media (max-width:560px){.sg-ctl{grid-template-columns:1fr 1fr}.sg-ctl .sg-go{grid-column:1;grid-row:1}.sg-ctl .sg-demo{grid-column:2;grid-row:1}}

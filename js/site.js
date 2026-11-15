@@ -57,7 +57,7 @@ function tree(){
   function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
   function node(n,depth,role,pit){
     var has=n.f||n.m,it=pit||/Dammiano|Fiorenzano|Schettino|Ruggiero|Mazzeo|Altieri|Faraco/.test(n.n)||/Italia/.test(n.bp||'');
-    var meta=[];if(n.b||n.bp)meta.push('* '+[n.b,n.bp].filter(Boolean).join(', '));if(n.d||n.dp)meta.push('† '+[n.d,n.dp].filter(Boolean).join(', '));if(n.x&&n.x.length)meta.push('⚭ '+n.x.join(', '));if(n.t)meta.push(n.t);
+    var meta=[];if(n.b||n.bp)meta.push('* '+[n.b,n.bp].filter(Boolean).join(', '));if(n.d||n.dp)meta.push('† '+[n.d,n.dp].filter(Boolean).join(', '));if(n.x&&n.x.length)meta.push('⚭ '+n.x.join(', '));if(n.t)meta.push(n.t);if(n.r)meta.push('\u21B1 '+TT.rep);
     var h='<div class="tnode'+(has&&depth>=3?' closed':'')+'"><button type="button" class="person'+(has?' has':'')+(it?' it':'')+(n.p?' pic':'')+'"'+(has?' aria-expanded="'+(depth<3)+'"':'')+'>'+(n.p?'<img src="../img/tree/'+n.p+'.jpg" alt="" width="56" height="56" loading="lazy">':'')+'<b>'+esc(n.n)+'</b><small>'+(role?esc(role)+(meta.length?' · ':''):'')+esc(meta.join(' · '))+'</small></button>';
     if(has){h+='<div class="parents">'+(n.f?node(n.f,depth+1,TT.father,it):'')+(n.m?node(n.m,depth+1,TT.mother,it):'')+'</div>'}
     return h+'</div>';
