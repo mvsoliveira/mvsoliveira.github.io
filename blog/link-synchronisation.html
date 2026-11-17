@@ -3,11 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Synchronising more than 100 serial links in one FPGA</title>
+<title>Synchronising more than 100 serial links in one FPGA · Marcos Oliveira</title>
 <meta name="description" content="A dual-port-memory block that brings 208 serial inputs into one clock domain with low, fixed latency, calibrated once, for the ATLAS MUCTPI.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="canonical" href="https://marcosoliveira.ch/blog/link-synchronisation.html">
+<meta property="og:site_name" content="Marcos Oliveira">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Synchronising more than 100 serial links in one FPGA">
+<meta property="og:description" content="A dual-port-memory block that brings 208 serial inputs into one clock domain with low, fixed latency, calibrated once, for the ATLAS MUCTPI.">
+<meta property="og:url" content="https://marcosoliveira.ch/blog/link-synchronisation.html">
+<meta property="og:image" content="https://marcosoliveira.ch/img/blog-sync-requirements.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0D4636">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="alternate" type="application/rss+xml" title="Marcos Oliveira: blog" href="../blog/feed.xml">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"Synchronising more than 100 serial links in one FPGA","description":"A dual-port-memory block that brings 208 serial inputs into one clock domain with low, fixed latency, calibrated once, for the ATLAS MUCTPI.","datePublished":"2026-11-14","inLanguage":"en","url":"https://marcosoliveira.ch/blog/link-synchronisation.html","image":"https://marcosoliveira.ch/img/blog-sync-requirements.jpg","author":{"@type":"Person","name":"Marcos Oliveira","url":"https://marcosoliveira.ch/"}}</script>
 <link rel="stylesheet" href="../css/site.css">
 </head>
 <body data-depth="plain">
@@ -31,9 +42,9 @@
 <main id="top">
 <article class="longform">
 <header class="wrap pagehead">
-  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <p class="crumb"><a href="index.html" data-k="nav_blog">Blog</a></p>
   <h1>Synchronising more than 100 serial links in one FPGA</h1>
-  <p class="meta"><span class="postmeta"><time>2016–19</time><span class="tag" data-t="t_fw">Firmware</span></span>Written from chapter 5 of my PhD thesis (EPFL, 2021).</p>
+  <p class="meta"><span class="postmeta"><time>2016–19</time><span class="tag" data-t="t_fw">Firmware</span></span>Written from chapter 5 of my PhD thesis (EPFL, 2021).<span class="pub">Published <time datetime="2026-11-14">14 November 2026</time>.</span></p>
   <p class="doclinks"><a href="../docs/phd-thesis.pdf">PhD thesis (PDF)</a><a href="../docs/phd-private-defense.pdf">Technical defence slides (PDF)</a><a href="../theses/phd.html">Thesis summary</a></p>
   <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
 </header>
@@ -89,7 +100,7 @@
 <h2>Notes for a similar design</h2>
 <p>The 3.125 ns of receiver uncertainty could have been removed inside the transceiver, at the cost of modifying the vendor's IP. Absorbing it here was simpler, and the simulation showed that the block tolerates more variation than the links produce. The other thing I would repeat is to build the monitors, BCID and CRC, into the block from the start. They are what makes a one-time calibration possible.</p>
 </div>
-<nav class="postnav" aria-label="More posts"><a class="prev" href="muon-topology.html"><small>Previous post</small>Teaching a trigger where the muons are</a><a class="next" href="transceiver-latency.html"><small>Next post</small>Making transceiver latency deterministic</a><a class="all" href="../index.html#blog">All posts</a></nav>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="muon-topology.html"><small>Previous post</small>Teaching a trigger where the muons are</a><a class="next" href="transceiver-latency.html"><small>Next post</small>Making transceiver latency deterministic</a><a class="all" href="index.html">All posts</a></nav>
 </div>
 </article>
 
@@ -107,6 +118,7 @@
     </form>
     <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
     <ul class="links">
+      <li><a href="../cv.html">CV</a></li>
       <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
       <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
       <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>

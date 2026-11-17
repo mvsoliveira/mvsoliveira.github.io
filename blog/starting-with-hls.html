@@ -3,11 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Starting with HLS: from a logic gate to a FIR filter</title>
+<title>Starting with HLS: from a logic gate to a FIR filter · Marcos Oliveira</title>
 <meta name="description" content="A first session on high-level synthesis, from one AND gate through bit widths, pipelining and loop unrolling to a pipelined FIR filter, as taught at the US AHEAD bootcamp.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="canonical" href="https://marcosoliveira.ch/blog/starting-with-hls.html">
+<meta property="og:site_name" content="Marcos Oliveira">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Starting with HLS: from a logic gate to a FIR filter">
+<meta property="og:description" content="A first session on high-level synthesis, from one AND gate through bit widths, pipelining and loop unrolling to a pipelined FIR filter, as taught at the US AHEAD bootcamp.">
+<meta property="og:url" content="https://marcosoliveira.ch/blog/starting-with-hls.html">
+<meta property="og:image" content="https://marcosoliveira.ch/img/blog-hls-04.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0D4636">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="alternate" type="application/rss+xml" title="Marcos Oliveira: blog" href="../blog/feed.xml">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"Starting with HLS: from a logic gate to a FIR filter","description":"A first session on high-level synthesis, from one AND gate through bit widths, pipelining and loop unrolling to a pipelined FIR filter, as taught at the US AHEAD bootcamp.","datePublished":"2026-11-14","inLanguage":"en","url":"https://marcosoliveira.ch/blog/starting-with-hls.html","image":"https://marcosoliveira.ch/img/blog-hls-04.jpg","author":{"@type":"Person","name":"Marcos Oliveira","url":"https://marcosoliveira.ch/"}}</script>
 <link rel="stylesheet" href="../css/site.css">
 </head>
 <body data-depth="plain">
@@ -31,9 +42,9 @@
 <main id="top">
 <article class="longform">
 <header class="wrap pagehead">
-  <p class="crumb"><a href="../index.html#blog" data-k="nav_blog">Blog</a></p>
+  <p class="crumb"><a href="index.html" data-k="nav_blog">Blog</a></p>
   <h1>Starting with HLS: from a logic gate to a FIR filter</h1>
-  <p class="meta"><span class="postmeta"><time>2025</time><span class="tag" data-t="t_teach">Teaching</span></span>Written from my Starting with HLS session at the US AHEAD bootcamp (BNL, June 2025).</p>
+  <p class="meta"><span class="postmeta"><time>2025</time><span class="tag" data-t="t_teach">Teaching</span></span>Written from my Starting with HLS session at the US AHEAD bootcamp (BNL, June 2025).<span class="pub">Published <time datetime="2026-11-14">14 November 2026</time>.</span></p>
   <p class="doclinks"><a href="../docs/starting-with-hls.pdf">Slides (PDF)</a></p>
   <p class="langnote"><span data-l="pt">Este post está disponível apenas em inglês.</span><span data-l="fr">Cet article n'existe qu'en anglais.</span></p>
 </header>
@@ -96,7 +107,7 @@ q_o = sum;</code></pre>
 <p>Three things. First, the tool does what you say, not what you mean, and its defaults are made for accelerators, not for datapaths. Look at the schematic, not only at the code. Second, width is a design decision, and the overflow rules are simple enough to apply every time. Third, the same C++ can become very different hardware, and the pragmas are the place where that decision lives. That is also why HLS is worth learning: the decision can be changed late in a project, by changing one line, without rewriting the design.</p>
 <p>During the same bootcamp I also presented how we had used HLS in production for the ATLAS calorimeter trigger. That story is in <a href="hls-calorimeter.html">a separate post</a>. The full slides of this session are linked at the top of the page.</p>
 </div>
-<nav class="postnav" aria-label="More posts"><a class="prev" href="inter-fpga-links.html"><small>Previous post</small>Talking between FPGAs on the same board</a><a class="next" href="global-trigger-mux.html"><small>Next post</small>Architecting the Global Trigger multiplexer</a><a class="all" href="../index.html#blog">All posts</a></nav>
+<nav class="postnav" aria-label="More posts"><a class="prev" href="inter-fpga-links.html"><small>Previous post</small>Talking between FPGAs on the same board</a><a class="next" href="global-trigger-mux.html"><small>Next post</small>Architecting the Global Trigger multiplexer</a><a class="all" href="index.html">All posts</a></nav>
 </div>
 </article>
 
@@ -114,6 +125,7 @@ q_o = sum;</code></pre>
     </form>
     <p class="fnote" data-k="f_note">Your message goes straight to my inbox. Your email is only used to reply.</p>
     <ul class="links">
+      <li><a href="../cv.html">CV</a></li>
       <li><a href="https://linkedin.com/in/marcosvsoliveira">LinkedIn</a></li>
       <li><a href="https://github.com/mvsoliveira">GitHub</a></li>
       <li><a href="https://scholar.google.com/citations?user=jRxqX-gAAAAJ&amp;hl=en">Google Scholar</a></li>

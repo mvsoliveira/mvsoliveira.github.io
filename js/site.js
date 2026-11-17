@@ -77,7 +77,9 @@ function setLang(l,save){
   years();nums();draw();tree();
   if(save){try{localStorage.setItem('lang',l)}catch(e){}}
 }
-Q('.lang button').forEach(function(b){b.addEventListener('click',function(){setLang(b.dataset.lang,true)})});
+/* the address carries the language (?lang=pt, ?lang=fr; none for English) so a page can be linked in one language */
+function addr(l){try{var u=new URL(location.href);if(l==='en')u.searchParams.delete('lang');else u.searchParams.set('lang',l);history.replaceState(null,'',u)}catch(e){}}
+Q('.lang button').forEach(function(b){b.addEventListener('click',function(){setLang(b.dataset.lang,true);addr(b.dataset.lang)})});
 Q('.depth button').forEach(function(b){b.addEventListener('click',function(){document.body.dataset.depth=b.dataset.depth;try{localStorage.setItem('depth',b.dataset.depth)}catch(e){}Q('.depth button').forEach(function(x){x.setAttribute('aria-pressed',String(x.dataset.depth===b.dataset.depth))})})});
 try{var dp=localStorage.getItem('depth');if(dp==='tech'){document.body.dataset.depth='tech';Q('.depth button').forEach(function(x){x.setAttribute('aria-pressed',String(x.dataset.depth==='tech'))})}}catch(e){}
 
@@ -100,8 +102,11 @@ var np=document.getElementById('npapers');
 if(np&&window.fetch){fetch('https://inspirehep.net/api/literature?q=authors.recid%3A1267586&size=1&fields=control_number')
   .then(function(r){return r.json()}).then(function(j){var n=j&&j.hits&&j.hits.total;if(n>700){np.dataset.num=n;nums()}}).catch(function(){})}
 
-var start=null;
-try{start=localStorage.getItem('lang')}catch(e){}
-if(!start){var n=(navigator.language||'en').slice(0,2).toLowerCase();start=(n==='pt'||n==='fr')?n:'en'}
-setLang(start,false);
+var start=null,asked=null;
+try{asked=new URLSearchParams(location.search).get('lang')}catch(e){}
+if(['en','pt','fr'].indexOf(asked)<0)asked=null;
+if(!asked){try{start=localStorage.getItem('lang')}catch(e){}}
+if(asked){start=asked}else if(!start){var n=(navigator.language||'en').slice(0,2).toLowerCase();start=(n==='pt'||n==='fr')?n:'en'}
+setLang(start,!!asked);
+if(lang!=='en'||asked)addr(lang);
 })();
